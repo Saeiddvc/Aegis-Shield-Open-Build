@@ -47,11 +47,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
-          cache-dependency-path: |
-            private-source/**/gradle-wrapper.properties
-            private-source/**/build.gradle.kts
-            private-source/**/settings.gradle.kts
 
       - name: Extract source
         shell: bash
