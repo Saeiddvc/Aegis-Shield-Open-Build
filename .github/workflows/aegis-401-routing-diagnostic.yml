@@ -1,0 +1,43 @@
+name: Aegis 4.0.1 Routing Diagnostic
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-401-routing-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private-source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Inspect routing source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          cd "$PROJECT_DIR"
+          echo '--- PerAppProxyActivity ---'
+          sed -n '1,260p' app/src/main/java/com/v2ray/ang/ui/perappproxy/PerAppProxyActivity.kt
+          echo '--- PerAppProxyViewModel ---'
+          sed -n '1,320p' app/src/main/java/com/v2ray/ang/ui/perappproxy/PerAppProxyViewModel.kt
+          echo '--- CoreVpnService routing section ---'
+          grep -n -B25 -A80 -E 'PREF_PER_APP_PROXY|addDisallowedApplication|addAllowedApplication|addRoute|allowBypass|excludeRoute' app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt || true
