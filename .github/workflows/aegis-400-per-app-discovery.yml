@@ -1,0 +1,39 @@
+name: Aegis 4.0 Per-App Discovery
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-400-per-app-discovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private-source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Discover implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          cd "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc14b-per-app-discovery.py"
