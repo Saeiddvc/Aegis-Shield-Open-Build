@@ -67,22 +67,11 @@ jobs:
                   print(f'\n===== {path} :: {needle} =====\n')
                   print(s[max(0,pos-before):min(len(s),pos+after)])
           section('app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt','reloadCoreInPlace')
-          section('app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt','private fun reloadCore')
+          section('app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt','override fun shutdown')
           section('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt','fun setAdultContentBlocked')
-          section('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt','StateNotRunning')
-          section('app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt','onRevoke')
-          section('app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt','setup')
-          print('\n===== Failure literals =====')
-          for p in Path('app/src/main').rglob('*'):
-              if p.is_file() and p.suffix in {'.kt','.xml'}:
-                  s=p.read_text(errors='ignore')
-                  if 'Failure' in s or 'Produced by Saeiddvc' in s or 'Produced by' in s:
-                      print('\n--',p,'--')
-                      for i,line in enumerate(s.splitlines(),1):
-                          if 'Failure' in line or 'Produced by' in line:
-                              print(i, line)
-          print('\n===== Advanced / About files =====')
-          for p in Path('app/src/main').rglob('*'):
-              if p.is_file() and p.suffix in {'.kt','.xml'} and any(x in p.name.lower() for x in ('advanced','about')):
-                  print('\n--',p,'--\n',p.read_text(errors='ignore')[:16000])
+          section('app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt','MainAction.ImportClipboard',3000,12000)
+          section('app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt','MainAction.ImportQRcode',3000,12000)
+          section('app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt','registerForActivityResult',2000,16000)
+          section('app/src/main/java/com/v2ray/ang/ui/AboutActivity.kt','fun AboutScreen',1000,10000)
+          section('app/src/main/java/com/v2ray/ang/ui/main/AegisAdvancedScreen.kt','fun AegisAdvancedScreen',1000,12000)
           PY
