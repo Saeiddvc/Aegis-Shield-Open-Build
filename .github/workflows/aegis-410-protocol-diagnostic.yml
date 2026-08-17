@@ -1,0 +1,45 @@
+name: Aegis 4.1 Protocol Diagnostic
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-410-protocol-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Inspect protocol and import contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          cd "$PROJECT_DIR"
+          echo '=== PROFILE TYPES / DTOs ==='
+          grep -RniE 'EConfigType|VMESS|VLESS|TROJAN|SHADOWSOCKS|WIREGUARD|HYSTERIA|TUIC|SOCKS|HTTP' app/src/main/java/com/v2ray/ang/dto app/src/main/java/com/v2ray/ang/handler app/src/main/java/com/v2ray/ang/util 2>/dev/null | head -n 500 || true
+          echo '=== URI / FILE IMPORT ==='
+          grep -RniE 'vmess://|vless://|trojan://|ss://|socks://|wireguard|hysteria|hy2://|tuic://|import.*config|parse.*config|decode.*config|\.json|\.conf|\.ovpn' app/src/main/java 2>/dev/null | head -n 700 || true
+          echo '=== SMART PROTOCOL ==='
+          grep -RniE 'SmartProtocol|protocolId|nativeProfiles' app/src/main/java 2>/dev/null | head -n 300 || true
+          echo '=== GRADLE DEPS ==='
+          grep -RniE 'openvpn|wireguard|xray|v2ray|sing-box|hysteria|tuic|ssh|naive|dnstt' app/build.gradle.kts build.gradle.kts gradle/libs.versions.toml 2>/dev/null || true
