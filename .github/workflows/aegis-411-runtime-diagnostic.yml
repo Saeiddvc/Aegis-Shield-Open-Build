@@ -56,6 +56,9 @@ jobs:
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass-hotfix.py"
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc17-live-policy-stable-protocol-pool.py"
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc18-protocol-balanced-discovery.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19a-core-reload-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19b-user-facing-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19c-about-polish.py"
           python3 - <<'PY'
           from pathlib import Path
           def section(path, needle, before=1500, after=9000):
@@ -66,12 +69,20 @@ jobs:
               if pos>=0:
                   print(f'\n===== {path} :: {needle} =====\n')
                   print(s[max(0,pos-before):min(len(s),pos+after)])
-          section('app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt','reloadCoreInPlace')
-          section('app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt','override fun shutdown')
-          section('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt','fun setAdultContentBlocked')
           section('app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt','MainAction.ImportClipboard',3000,12000)
           section('app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt','MainAction.ImportQRcode',3000,12000)
-          section('app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt','registerForActivityResult',2000,16000)
-          section('app/src/main/java/com/v2ray/ang/ui/AboutActivity.kt','fun AboutScreen',1000,10000)
-          section('app/src/main/java/com/v2ray/ang/ui/main/AegisAdvancedScreen.kt','fun AegisAdvancedScreen',1000,12000)
+          section('app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt','MainAction.ImportConfigLocal',3000,12000)
+          section('app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt','registerForActivityResult',2000,18000)
+          section('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt','private fun importBatchConfig',1500,10000)
+          print('\n===== Remaining raw failure references in user-facing main flow =====')
+          for path in [
+              Path('app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt'),
+              Path('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt'),
+              Path('app/src/main/java/com/v2ray/ang/ui/main/AegisAdvancedScreen.kt'),
+          ]:
+              s=path.read_text(errors='ignore')
+              for i,line in enumerate(s.splitlines(),1):
+                  low=line.lower()
+                  if 'toast_failure' in low or '"failure"' in low or 'toast_error' in low:
+                      print(path, i, line.strip())
           PY
