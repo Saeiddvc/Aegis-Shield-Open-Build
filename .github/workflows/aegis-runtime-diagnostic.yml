@@ -1,0 +1,103 @@
+name: Aegis runtime diagnostic
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-runtime-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout public repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private source
+        uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Extract and apply current patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          cd "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/prebuild-base.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/fix-lint-errors.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc2-runtime-fixes.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc3-smart-fallback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc4-aegis-ui-runtime.py"
+          python3 "$GITHUB_WORKSPACE/private-source/.github/support/fix-ui-smoke.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc5-private-advanced-argo-import.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6-professional-dashboard-argo-choice.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6b-wire-argo-choice-activity.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc7-argo-import-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc8-runtime-fast-connect.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc9-adaptive-orchestrator-branding.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc10-argo-reachability-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc11-smart-route-shortlist.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc12-live-route-selection-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc13-zero-delay-shortlist-privacy.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc15-app-routing-adult-filter.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc17-live-policy-stable-protocol-pool.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc18-protocol-balanced-discovery.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19a-core-reload-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19b-user-facing-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19c-about-polish.py"
+          echo "PROJECT_DIR=$PWD" >> "$GITHUB_ENV"
+
+      - name: Collect generated runtime source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostic/source diagnostic/reports
+          cd "$PROJECT_DIR"
+          for f in \
+            app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt \
+            app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt \
+            app/src/main/java/com/v2ray/ang/ui/main/AegisAdvancedScreen.kt \
+            app/src/main/java/com/v2ray/ang/ui/AboutActivity.kt \
+            app/src/main/java/com/v2ray/ang/ui/main/MainScreen.kt \
+            app/src/main/java/com/v2ray/ang/ui/main/MainDrawer.kt \
+            app/src/main/java/com/v2ray/ang/AppConfig.kt \
+            app/src/main/res/values/strings.xml \
+            app/src/main/res/values/smart_strings.xml; do
+            if [ -f "$f" ]; then
+              mkdir -p "$GITHUB_WORKSPACE/diagnostic/source/$(dirname "$f")"
+              cp "$f" "$GITHUB_WORKSPACE/diagnostic/source/$f"
+            fi
+          done
+          {
+            echo '=== About references ==='
+            grep -RIn --exclude-dir=build -E 'AboutActivity|Produced by Saeiddvc|Built by Saeiddvc|Open Source licenses|title_about' app/src/main || true
+            echo
+            echo '=== Adult/reload references ==='
+            grep -RIn --exclude-dir=build -E 'setAdultContentBlocked|reloadSelectedCoreInPlace|reloadCoreInPlace|reloadCore\(|stopLoop\(|stopService\(|StateStop|MSG_STATE_STOP|PREF_AEGIS_ADULT' app/src/main/java || true
+            echo
+            echo '=== Advanced references ==='
+            grep -RIn --exclude-dir=build -E 'AegisAdvancedScreen|statusBarsPadding|Routing stays automatic|Automatic routing with only' app/src/main || true
+          } > "$GITHUB_WORKSPACE/diagnostic/reports/references.txt"
+
+      - name: Upload generated source diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aegis-4.1.1-generated-runtime-source
+          path: diagnostic
+          if-no-files-found: error
+          retention-days: 2
