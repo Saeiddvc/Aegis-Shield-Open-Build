@@ -1,0 +1,88 @@
+name: Aegis 4.1.1 Runtime Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-411-runtime-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Inspect patched runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          cd "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/prebuild-base.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/fix-lint-errors.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc2-runtime-fixes.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc3-smart-fallback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc4-aegis-ui-runtime.py"
+          python3 "$GITHUB_WORKSPACE/private-source/.github/support/fix-ui-smoke.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc5-private-advanced-argo-import.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6-professional-dashboard-argo-choice.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6b-wire-argo-choice-activity.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc7-argo-import-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc8-runtime-fast-connect.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc9-adaptive-orchestrator-branding.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc10-argo-reachability-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc11-smart-route-shortlist.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc12-live-route-selection-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc13-zero-delay-shortlist-privacy.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc15-app-routing-adult-filter.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc17-live-policy-stable-protocol-pool.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc18-protocol-balanced-discovery.py"
+          python3 - <<'PY'
+          from pathlib import Path
+          def section(path, needle, before=1500, after=9000):
+              p=Path(path)
+              if not p.exists(): return
+              s=p.read_text(errors='ignore')
+              pos=s.find(needle)
+              if pos>=0:
+                  print(f'\n===== {path} :: {needle} =====\n')
+                  print(s[max(0,pos-before):min(len(s),pos+after)])
+          section('app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt','reloadCoreInPlace')
+          section('app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt','private fun reloadCore')
+          section('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt','fun setAdultContentBlocked')
+          section('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt','StateNotRunning')
+          section('app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt','onRevoke')
+          section('app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt','setup')
+          print('\n===== Failure literals =====')
+          for p in Path('app/src/main').rglob('*'):
+              if p.is_file() and p.suffix in {'.kt','.xml'}:
+                  s=p.read_text(errors='ignore')
+                  if 'Failure' in s or 'Produced by Saeiddvc' in s or 'Produced by' in s:
+                      print('\n--',p,'--')
+                      for i,line in enumerate(s.splitlines(),1):
+                          if 'Failure' in line or 'Produced by' in line:
+                              print(i, line)
+          print('\n===== Advanced / About files =====')
+          for p in Path('app/src/main').rglob('*'):
+              if p.is_file() and p.suffix in {'.kt','.xml'} and any(x in p.name.lower() for x in ('advanced','about')):
+                  print('\n--',p,'--\n',p.read_text(errors='ignore')[:16000])
+          PY
