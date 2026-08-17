@@ -1,0 +1,173 @@
+name: Aegis Shield 4.1.2 Final Stable
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-412-final-stable.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  final-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
+      AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Extract and patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/private-source/$PROJECT_DIR" >> "$GITHUB_ENV"
+          cd "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/prebuild-base.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/fix-lint-errors.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc2-runtime-fixes.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc3-smart-fallback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc4-aegis-ui-runtime.py"
+          python3 "$GITHUB_WORKSPACE/private-source/.github/support/fix-ui-smoke.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc5-private-advanced-argo-import.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6-professional-dashboard-argo-choice.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6b-wire-argo-choice-activity.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc7-argo-import-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc8-runtime-fast-connect.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc9-adaptive-orchestrator-branding.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc10-argo-reachability-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc11-smart-route-shortlist.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc12-live-route-selection-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc13-zero-delay-shortlist-privacy.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc15-app-routing-adult-filter.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc17-live-policy-stable-protocol-pool.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc18-protocol-balanced-discovery.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19a-core-reload-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19b-user-facing-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19c-about-polish.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc20-device-runtime-ui-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc20b-adult-gate-cleanup.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc20c-core-handover-stability.py"
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoChoiceUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoChoiceUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoImportFeedbackUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoImportFeedbackUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisOrchestratorUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisOrchestratorUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoReachabilityUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoReachabilityUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisZeroDelayRouteUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisZeroDelayRouteUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisProtectionUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisProtectionUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisAdvancedDeviceUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisAdvancedDeviceUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisAboutActivityUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/AegisAboutActivityUiTest.kt
+      - name: Install Xray and HEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          mkdir -p app/libs
+          curl --fail --location --retry 4 --retry-all-errors --output app/libs/libv2ray.aar "$AAR_URL"
+          echo "$AAR_SHA256  app/libs/libv2ray.aar" | sha256sum --check --strict
+          bash "$GITHUB_WORKSPACE/private-source/ci/build-hev-tunnel.sh"
+      - name: Verify final 4.1.2 contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle = Path('app/build.gradle.kts').read_text()
+          vm = Path('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt').read_text()
+          core = Path('app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt').read_text()
+          about = Path('app/src/main/java/com/v2ray/ang/ui/AboutActivity.kt').read_text()
+          adv = Path('app/src/main/java/com/v2ray/ang/ui/main/AegisAdvancedScreen.kt').read_text()
+          assert 'versionName = "4.1.2"' in gradle and 'versionCode = 48' in gradle
+          a = vm.index('    fun setAdultContentBlocked(blocked: Boolean) {')
+          b = vm.index('\n    fun userRequestedDisconnect()', a)
+          adult = vm[a:b]
+          for bad in ('reloadSelectedCoreInPlace', 'reloadCoreInPlace', 'MSG_STATE_STOP', 'sendMsg2Service', 'stopLoop'):
+              assert bad not in adult, bad
+          assert 'PREF_AEGIS_ADULT_POLICY_PENDING' in adult
+          assert 'reloadShutdownSuppressUntilMs' in core
+          assert 'consumeReloadShutdownSuppression()' in core
+          assert 'routeCooldownDurationMs = 300_000L' in vm
+          assert 'dwellMs < 90_000L' in vm
+          assert 'delay(45_000L)' in vm
+          assert 'testTag("aegis_about_screen")' in about
+          assert 'testTag("advanced_header")' in adv
+          print('Final 4.1.2 runtime contract OK')
+          PY
+      - name: Unit, lint and APK build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon testPlaystoreDebugUnitTest
+          ./gradlew --no-daemon lintPlaystoreDebug
+          ./gradlew --no-daemon assemblePlaystoreDebug
+          python3 scripts/verify_apk.py
+      - name: Free disk and enable KVM
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/cmake || true
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Android 16 instrumentation and cold launch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 2048M
+          disk-size: 2048M
+          emulator-boot-timeout: 900
+          disable-animations: false
+          disable-linux-hw-accel: false
+          emulator-options: -no-snapshot -no-window -no-audio -gpu swiftshader_indirect -no-boot-anim
+          script: |
+            bash -lc 'set -euo pipefail; cd "$PROJECT_DIR"; chmod +x gradlew; ./gradlew --no-daemon connectedPlaystoreDebugAndroidTest; bash scripts/android16_cold_launch_test.sh'
+      - name: Package final APKs
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/release-files"
+          ARM64="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*arm64-v8a.apk' -print -quit)"
+          UNIVERSAL="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*universal.apk' -print -quit)"
+          test -n "$ARM64" && test -n "$UNIVERSAL"
+          cp "$ARM64" "$GITHUB_WORKSPACE/release-files/Aegis-Shield-VPN-4.1.2-ARM64.apk"
+          cp "$UNIVERSAL" "$GITHUB_WORKSPACE/release-files/Aegis-Shield-VPN-4.1.2-Universal.apk"
+          cd "$GITHUB_WORKSPACE/release-files"
+          sha256sum *.apk | tee SHA256SUMS.txt
+      - name: Upload final tested APKs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aegis-Shield-Android-4.1.2-final-stable
+          path: |
+            release-files/Aegis-Shield-VPN-4.1.2-ARM64.apk
+            release-files/Aegis-Shield-VPN-4.1.2-Universal.apk
+            release-files/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
