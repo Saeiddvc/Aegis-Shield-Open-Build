@@ -1,0 +1,69 @@
+name: Aegis 4.1 Patched State Diagnostic
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-410-patched-state-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Apply current patches and inspect state
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          cd "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/prebuild-base.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/fix-lint-errors.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc2-runtime-fixes.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc3-smart-fallback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc4-aegis-ui-runtime.py"
+          python3 "$GITHUB_WORKSPACE/private-source/.github/support/fix-ui-smoke.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc5-private-advanced-argo-import.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6-professional-dashboard-argo-choice.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6b-wire-argo-choice-activity.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc7-argo-import-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc8-runtime-fast-connect.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc9-adaptive-orchestrator-branding.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc10-argo-reachability-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc11-smart-route-shortlist.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc12-live-route-selection-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc13-zero-delay-shortlist-privacy.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc15-app-routing-adult-filter.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass.py"
+          echo '=== VERSION ==='
+          grep -n 'versionCode\|versionName' app/build.gradle.kts
+          echo '=== SMART CONTRACT ==='
+          sed -n '1,115p' app/src/main/java/com/v2ray/ang/ui/main/MainContract.kt
+          echo '=== PROTOCOL ID / SCORING ==='
+          grep -n -B10 -A100 -E 'private fun protocolId|ScoredRoute|priorityPenalty|buildRouteShortlistUi' app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt | head -n 420
+          echo '=== HEALTH / FAILOVER ==='
+          grep -n -B10 -A100 -E 'handleConnectionHealthResult|scheduleConnectionHealthCheck|failEstablishedConnection|healthFailureCount' app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt | head -n 500
+          echo '=== ADULT POLICY ==='
+          grep -n -B10 -A110 -E 'setAdultContentBlocked|PREF_AEGIS_ADULT' app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt | head -n 300
+          echo '=== RELOAD CORE ==='
+          grep -n -B10 -A100 -E 'fun reloadCore|isReloading' app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt | head -n 260
+          echo '=== DNS CONFIG ==='
+          grep -n -B8 -A80 -E 'getRemoteDnsServers|getVpnDnsServers|PREF_REMOTE_DNS|PREF_VPN_DNS|dns' app/src/main/java/com/v2ray/ang/handler/SettingsManager.kt app/src/main/java/com/v2ray/ang/core/CoreConfigManager.kt | head -n 500
