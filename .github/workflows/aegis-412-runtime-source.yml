@@ -1,0 +1,70 @@
+name: Aegis 4.1.2 Runtime Source Capture
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-412-runtime-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Generate current runtime source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work out && mkdir work out
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          cd "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/prebuild-base.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/fix-lint-errors.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc2-runtime-fixes.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc3-smart-fallback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc4-aegis-ui-runtime.py"
+          python3 "$GITHUB_WORKSPACE/private-source/.github/support/fix-ui-smoke.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc5-private-advanced-argo-import.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6-professional-dashboard-argo-choice.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6b-wire-argo-choice-activity.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc7-argo-import-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc8-runtime-fast-connect.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc9-adaptive-orchestrator-branding.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc10-argo-reachability-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc11-smart-route-shortlist.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc12-live-route-selection-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc13-zero-delay-shortlist-privacy.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc15-app-routing-adult-filter.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc17-live-policy-stable-protocol-pool.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc18-protocol-balanced-discovery.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19a-core-reload-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19b-user-facing-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19c-about-polish.py"
+          mkdir -p "$GITHUB_WORKSPACE/private-source/out"
+          cp app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt "$GITHUB_WORKSPACE/private-source/out/"
+          cp app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt "$GITHUB_WORKSPACE/private-source/out/"
+          cp app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt "$GITHUB_WORKSPACE/private-source/out/"
+          cp app/src/main/java/com/v2ray/ang/ui/main/AegisAdvancedScreen.kt "$GITHUB_WORKSPACE/private-source/out/"
+          cp app/src/main/java/com/v2ray/ang/ui/AboutActivity.kt "$GITHUB_WORKSPACE/private-source/out/"
+          cp app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt "$GITHUB_WORKSPACE/private-source/out/"
+          cp app/src/main/AndroidManifest.xml "$GITHUB_WORKSPACE/private-source/out/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aegis-412-runtime-source
+          path: private-source/out
+          if-no-files-found: error
+          retention-days: 2
