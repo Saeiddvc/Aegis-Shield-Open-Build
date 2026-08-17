@@ -79,6 +79,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc15-app-routing-adult-filter.py"
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass-hotfix.py"
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc17-live-policy-stable-protocol-pool.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc18-protocol-balanced-discovery.py"
           cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoChoiceUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoChoiceUiTest.kt
           cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoImportFeedbackUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoImportFeedbackUiTest.kt
           cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisOrchestratorUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisOrchestratorUiTest.kt
@@ -116,6 +117,8 @@ jobs:
           check slower-health-cadence grep -q 'delay(25_000L)' app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt
           check confirm-retry grep -q 'delay(5_000L)' app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt
           check protocol-neutral-score grep -q 'val priorityPenalty = 0L' app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt
+          check protocol-balanced-discovery grep -q 'mergeProtocolBalanced' app/src/main/java/com/v2ray/ang/handler/PublicConfigDiscoveryManager.kt
+          check diversity-seed grep -q 'seedTargetPerProtocol = 4' app/src/main/java/com/v2ray/ang/handler/PublicConfigDiscoveryManager.kt
           check native-vless grep -q 'const val VLESS = "vless"' app/src/main/java/com/v2ray/ang/ui/main/MainContract.kt
           check native-wireguard grep -q 'const val WIREGUARD = "wireguard"' app/src/main/java/com/v2ray/ang/ui/main/MainContract.kt
           check native-hysteria grep -q 'const val HYSTERIA2 = "hysteria2"' app/src/main/java/com/v2ray/ang/ui/main/MainContract.kt
@@ -134,6 +137,7 @@ jobs:
           vm = Path('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt').read_text()
           core = Path('app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt').read_text()
           contract = Path('app/src/main/java/com/v2ray/ang/ui/main/MainContract.kt').read_text()
+          discovery = Path('app/src/main/java/com/v2ray/ang/handler/PublicConfigDiscoveryManager.kt').read_text()
 
           a = vm.index('    fun setAdultContentBlocked(blocked: Boolean) {')
           b = vm.index('\n    fun userRequestedDisconnect()', a)
@@ -153,11 +157,14 @@ jobs:
           assert 'priorityPenalty = 0L' in vm
           assert 'delay + rank * 5L' not in vm
           assert 'verified -> (rank * 10L' not in vm
+          assert 'val merged = mergeProtocolBalanced' in discovery
+          for family in ('vless','vmess','trojan','wireguard','hysteria2','shadowsocks','socks','http'):
+              assert f'"{family}"' in discovery
 
           native_block = contract[contract.index('    val nativeProfiles = setOf('):]
           for protocol in ('VLESS','WIREGUARD','HYSTERIA2','TROJAN','VMESS','SHADOWSOCKS','SOCKS','HTTP','CUSTOM'):
               assert protocol in native_block, protocol
-          print('Aegis 4.1 live-policy/stability/protocol-neutral contract verified')
+          print('Aegis 4.1 live-policy/stability/protocol-neutral/discovery contract verified')
           PY
           for abi in arm64-v8a armeabi-v7a x86_64 x86; do
             check "hev-$abi" test -s "app/libs/$abi/libhev-socks5-tunnel.so"
