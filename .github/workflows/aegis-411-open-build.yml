@@ -1,0 +1,256 @@
+name: Aegis Shield 4.1.1 Open Build
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-411-open-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  final-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
+      AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
+    steps:
+      - name: Checkout public build repo
+        uses: actions/checkout@v4
+
+      - name: Validate private-source token
+        shell: bash
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${AEGIS_SOURCE_TOKEN:-}"
+
+      - name: Checkout private Aegis source
+        uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Extract source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/private-source/$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Apply Aegis Shield 4.1.1 patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/prebuild-base.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/fix-lint-errors.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc2-runtime-fixes.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc3-smart-fallback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc4-aegis-ui-runtime.py"
+          python3 "$GITHUB_WORKSPACE/private-source/.github/support/fix-ui-smoke.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc5-private-advanced-argo-import.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6-professional-dashboard-argo-choice.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6b-wire-argo-choice-activity.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc7-argo-import-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc8-runtime-fast-connect.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc9-adaptive-orchestrator-branding.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc10-argo-reachability-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc11-smart-route-shortlist.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc12-live-route-selection-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc13-zero-delay-shortlist-privacy.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc15-app-routing-adult-filter.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc17-live-policy-stable-protocol-pool.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc18-protocol-balanced-discovery.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19a-core-reload-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19b-user-facing-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19c-about-polish.py"
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoChoiceUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoChoiceUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoImportFeedbackUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoImportFeedbackUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisOrchestratorUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisOrchestratorUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoReachabilityUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoReachabilityUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisZeroDelayRouteUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisZeroDelayRouteUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisProtectionUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisProtectionUiTest.kt
+
+      - name: Install verified Xray core
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          mkdir -p app/libs
+          curl --fail --location --retry 4 --retry-all-errors --output app/libs/libv2ray.aar "$AAR_URL"
+          echo "$AAR_SHA256  app/libs/libv2ray.aar" | sha256sum --check --strict
+
+      - name: Build and package HEV tun2socks JNI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          bash "$GITHUB_WORKSPACE/private-source/ci/build-hev-tunnel.sh"
+
+      - name: Verify 4.1.1 live-reload and UI contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          grep -q 'versionName = "4.1.1"' app/build.gradle.kts
+          grep -q 'versionCode = 47' app/build.gradle.kts
+          grep -q 'Service stop suppressed during core reload' app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt
+          grep -q 'statusBarsPadding()' app/src/main/java/com/v2ray/ang/ui/main/AegisAdvancedScreen.kt
+          grep -q 'No supported VPN configuration was found' app/src/main/res/values/smart_strings.xml
+          grep -q 'Aegis Shield' app/src/main/java/com/v2ray/ang/ui/AboutActivity.kt
+          python3 - <<'PY'
+          from pathlib import Path
+          core = Path('app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt').read_text()
+          vm = Path('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt').read_text()
+          about = Path('app/src/main/java/com/v2ray/ang/ui/AboutActivity.kt').read_text()
+          advanced = Path('app/src/main/java/com/v2ray/ang/ui/main/AegisAdvancedScreen.kt').read_text()
+
+          cs = core.index('        override fun shutdown(): Long {')
+          ce = core.index('\n        override fun onEmitStatus', cs)
+          shutdown = core[cs:ce]
+          guard = shutdown.index('if (CoreServiceManager.isReloading)')
+          stop = shutdown.index('serviceControl.stopService()')
+          assert guard < stop, 'reload guard must execute before service stop'
+          assert 'return 0' in shutdown[guard:stop], 'reload branch must return before stopService'
+
+          a = vm.index('    fun setAdultContentBlocked(blocked: Boolean) {')
+          b = vm.index('\n    fun userRequestedDisconnect()', a)
+          adult = vm[a:b]
+          assert 'reloadSelectedCoreInPlace' in adult
+          assert 'MSG_STATE_STOP' not in adult
+          assert 'retrySmartConnectAfterStop' not in adult
+
+          a = vm.index('    private fun importBatchConfig(configText: String) {')
+          b = vm.index('\n    private fun importConfigViaSub()', a)
+          imp = vm[a:b]
+          assert 'R.string.toast_failure' not in imp
+          assert 'R.string.smart_import_unsupported' in imp
+
+          assert 'BuildConfig.APPLICATION_ID' not in about
+          assert 'VersionInfoBlock(' not in about
+          assert 'Smart VPN · automatic multi-route selection' in about
+          assert 'statusBarsPadding()' in advanced
+          print('Aegis 4.1.1 root-cause live-reload and user-facing contract verified')
+          PY
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            test -s "app/libs/$abi/libhev-socks5-tunnel.so"
+          done
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon testPlaystoreDebugUnitTest
+
+      - name: Android Lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon lintPlaystoreDebug
+
+      - name: Build APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon assemblePlaystoreDebug
+
+      - name: Static APK integrity checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          python3 scripts/verify_apk.py
+          UNIVERSAL="$(find app/build/outputs/apk/playstore/debug -name '*universal.apk' -print -quit)"
+          test -n "$UNIVERSAL"
+          python3 - "$UNIVERSAL" <<'PY'
+          import sys, zipfile
+          apk = sys.argv[1]
+          required = {
+              'lib/arm64-v8a/libhev-socks5-tunnel.so',
+              'lib/armeabi-v7a/libhev-socks5-tunnel.so',
+              'lib/x86_64/libhev-socks5-tunnel.so',
+              'lib/x86/libhev-socks5-tunnel.so',
+          }
+          with zipfile.ZipFile(apk) as zf:
+              names = set(zf.namelist())
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit('Missing HEV JNI entries: ' + ', '.join(missing))
+          print('HEV JNI verified for all shipping ABIs')
+          PY
+
+      - name: Free runner disk and enable KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/cmake || true
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          df -h /
+
+      - name: Android 16 instrumentation and cold launch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 2048M
+          disk-size: 2048M
+          emulator-boot-timeout: 900
+          disable-animations: false
+          disable-linux-hw-accel: false
+          emulator-options: -no-snapshot -no-window -no-audio -gpu swiftshader_indirect -no-boot-anim
+          script: |
+            bash -lc 'set -euo pipefail; cd "$PROJECT_DIR"; chmod +x gradlew; ./gradlew --no-daemon connectedPlaystoreDebugAndroidTest; bash scripts/android16_cold_launch_test.sh'
+
+      - name: Prepare final APK files
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/release-files"
+          ARM64="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*arm64-v8a.apk' -print -quit)"
+          UNIVERSAL="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*universal.apk' -print -quit)"
+          test -n "$ARM64"
+          test -n "$UNIVERSAL"
+          cp "$ARM64" "$GITHUB_WORKSPACE/release-files/Aegis-Shield-VPN-4.1.1-ARM64.apk"
+          cp "$UNIVERSAL" "$GITHUB_WORKSPACE/release-files/Aegis-Shield-VPN-4.1.1-Universal.apk"
+          cd "$GITHUB_WORKSPACE/release-files"
+          sha256sum *.apk | tee SHA256SUMS.txt
+
+      - name: Upload final tested APKs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aegis-Shield-Android-4.1.1-final-tested
+          path: |
+            release-files/Aegis-Shield-VPN-4.1.1-ARM64.apk
+            release-files/Aegis-Shield-VPN-4.1.1-Universal.apk
+            release-files/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
