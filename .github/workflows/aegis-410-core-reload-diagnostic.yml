@@ -1,0 +1,45 @@
+name: Aegis 4.1 Core Reload Diagnostic
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-410-core-reload-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Inspect reload-capable service paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          cd "$PROJECT_DIR"
+          echo '=== CoreVpnService start/stop ==='
+          sed -n '1,210p' app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt
+          echo '=== CoreServiceManager ==='
+          sed -n '1,240p' app/src/main/java/com/v2ray/ang/core/CoreServiceManager.kt
+          echo '=== ProcessService ==='
+          sed -n '1,220p' app/src/main/java/com/v2ray/ang/service/ProcessService.kt
+          echo '=== SettingsChangeManager ==='
+          sed -n '1,200p' app/src/main/java/com/v2ray/ang/handler/SettingsChangeManager.kt
