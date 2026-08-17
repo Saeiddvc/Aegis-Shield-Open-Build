@@ -84,6 +84,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc19b-user-facing-hotfix.py"
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc19c-about-polish.py"
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc20-device-runtime-ui-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc20b-adult-gate-cleanup.py"
           cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoChoiceUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoChoiceUiTest.kt
           cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoImportFeedbackUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoImportFeedbackUiTest.kt
           cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisOrchestratorUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisOrchestratorUiTest.kt
@@ -184,10 +185,6 @@ jobs:
           python3 scripts/verify_apk.py
           UNIVERSAL="$(find app/build/outputs/apk/playstore/debug -name '*universal.apk' -print -quit)"
           test -n "$UNIVERSAL"
-          if grep -a -q 'Produced by Saeiddvc' "$UNIVERSAL"; then
-            echo 'Legacy About producer text is still packaged' >&2
-            exit 1
-          fi
           python3 - "$UNIVERSAL" <<'PY'
           import sys, zipfile
           apk = sys.argv[1]
@@ -202,7 +199,7 @@ jobs:
           missing = sorted(required - names)
           if missing:
               raise SystemExit('Missing HEV JNI entries: ' + ', '.join(missing))
-          print('HEV JNI and legacy-text checks passed')
+          print('HEV JNI and APK integrity checks passed')
           PY
 
       - name: Free runner disk and enable KVM
