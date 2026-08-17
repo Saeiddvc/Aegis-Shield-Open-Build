@@ -52,7 +52,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc12-live-route-selection-hotfix.py"
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc13-zero-delay-shortlist-privacy.py"
           python3 "$GITHUB_WORKSPACE/private-source/ci/rc15-app-routing-adult-filter.py"
-          python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass-hotfix.py"
           echo '=== VERSION ==='
           grep -n 'versionCode\|versionName' app/build.gradle.kts
           echo '=== SMART CONTRACT ==='
