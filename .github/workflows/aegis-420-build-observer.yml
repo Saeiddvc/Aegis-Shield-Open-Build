@@ -1,0 +1,27 @@
+name: Aegis 4.2.0 Build Observer
+
+on:
+  workflow_run:
+    workflows: ["Aegis Shield 4.2.0 Protocol Foundation"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish build marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RESULT: ${{ github.event.workflow_run.conclusion }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "AEGIS-420-BUILD-${RUN_ID}-${RESULT}" \
+            --body "Aegis 4.2.0 protocol-foundation build completed. Run ID: ${RUN_ID}. Result: ${RESULT}. Commit: ${HEAD_SHA}."
