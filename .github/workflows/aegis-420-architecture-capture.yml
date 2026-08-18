@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   capture:
@@ -88,3 +89,13 @@ jobs:
           path: capture
           if-no-files-found: error
           retention-days: 2
+      - name: Publish run marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "AEGIS-420-CAPTURE-${GITHUB_RUN_ID}" \
+            --body "Architecture capture completed. Run ID: ${GITHUB_RUN_ID}. Artifact: aegis-420-architecture-capture. Commit: ${GITHUB_SHA}."
