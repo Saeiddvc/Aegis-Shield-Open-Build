@@ -72,10 +72,9 @@ jobs:
           OUT="$GITHUB_WORKSPACE/capture"
           mkdir -p "$OUT"
           cd "$PROJECT_DIR"
-          cp -R app/src/main/java/com/v2ray/ang/handler "$OUT/handler"
-          cp -R app/src/main/java/com/v2ray/ang/dto "$OUT/dto" || true
-          cp -R app/src/main/java/com/v2ray/ang/core "$OUT/core"
-          cp -R app/src/main/java/com/v2ray/ang/util "$OUT/util" || true
+          for d in handler dto core util fmt enums extension; do
+            if [ -d "app/src/main/java/com/v2ray/ang/$d" ]; then cp -R "app/src/main/java/com/v2ray/ang/$d" "$OUT/$d"; fi
+          done
           cp app/src/main/java/com/v2ray/ang/AppConfig.kt "$OUT/AppConfig.kt"
           cp app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt "$OUT/MainViewModel.kt"
           cp app/src/main/java/com/v2ray/ang/ui/main/MainContract.kt "$OUT/MainContract.kt" || true
