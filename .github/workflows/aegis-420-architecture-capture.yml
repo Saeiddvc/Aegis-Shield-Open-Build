@@ -1,0 +1,90 @@
+name: Aegis 4.2.0 Architecture Capture
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-420-architecture-capture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Extract and apply 4.1.2 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/private-source/$PROJECT_DIR" >> "$GITHUB_ENV"
+          cd "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/prebuild-base.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/fix-lint-errors.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc2-runtime-fixes.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc3-smart-fallback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc4-aegis-ui-runtime.py"
+          python3 "$GITHUB_WORKSPACE/private-source/.github/support/fix-ui-smoke.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc5-private-advanced-argo-import.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6-professional-dashboard-argo-choice.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc6b-wire-argo-choice-activity.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc7-argo-import-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc8-runtime-fast-connect.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc9-adaptive-orchestrator-branding.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc10-argo-reachability-feedback.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc11-smart-route-shortlist.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc12-live-route-selection-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc13-zero-delay-shortlist-privacy.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc15-app-routing-adult-filter.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc16-android-auto-bypass-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc17-live-policy-stable-protocol-pool.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc18-protocol-balanced-discovery.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19a-core-reload-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19b-user-facing-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc19c-about-polish.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc20-device-runtime-ui-hotfix.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc20b-adult-gate-cleanup.py"
+          python3 "$GITHUB_WORKSPACE/private-source/ci/rc20c-core-handover-stability.py"
+      - name: Collect architecture sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/capture"
+          mkdir -p "$OUT"
+          cd "$PROJECT_DIR"
+          cp -R app/src/main/java/com/v2ray/ang/handler "$OUT/handler"
+          cp -R app/src/main/java/com/v2ray/ang/dto "$OUT/dto" || true
+          cp -R app/src/main/java/com/v2ray/ang/core "$OUT/core"
+          cp -R app/src/main/java/com/v2ray/ang/util "$OUT/util" || true
+          cp app/src/main/java/com/v2ray/ang/AppConfig.kt "$OUT/AppConfig.kt"
+          cp app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt "$OUT/MainViewModel.kt"
+          cp app/src/main/java/com/v2ray/ang/ui/main/MainContract.kt "$OUT/MainContract.kt" || true
+          cp app/build.gradle.kts "$OUT/app-build.gradle.kts"
+          find "$OUT" -type f | sort > "$OUT/FILES.txt"
+          grep -RniE 'vmess|vless|trojan|wireguard|hysteria|tuic|shadowsocks|socks5|openvpn|ovpn|protocol|parse|import' "$OUT" > "$OUT/PROTOCOL-HITS.txt" || true
+      - name: Upload capture
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-420-architecture-capture
+          path: capture
+          if-no-files-found: error
+          retention-days: 2
