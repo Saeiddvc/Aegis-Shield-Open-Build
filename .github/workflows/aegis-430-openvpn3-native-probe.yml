@@ -14,7 +14,7 @@ permissions:
 jobs:
   native-probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Publish run start marker
@@ -22,8 +22,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue create --repo "$GITHUB_REPOSITORY" \
-            --title "AEGIS-430-OVPN3-PROBE-${GITHUB_RUN_ID}" \
-            --body "OpenVPN3 Android native probe started. Run ID: ${GITHUB_RUN_ID}. Commit: ${GITHUB_SHA}."
+            --title "AEGIS-430-OVPN3-ALLABI-${GITHUB_RUN_ID}" \
+            --body "OpenVPN3 all-ABI Android probe started. Run ID: ${GITHUB_RUN_ID}. Commit: ${GITHUB_SHA}."
       - name: Validate private source token
         env:
           AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
@@ -47,24 +47,27 @@ jobs:
             yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
           fi
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
-      - name: Build official OpenVPN3 core for ARM64
+      - name: Build official OpenVPN3 core for every Aegis ABI
         shell: bash
         env:
-          AEGIS_OPENVPN3_ABIS: arm64-v8a
+          AEGIS_OPENVPN3_ABIS: arm64-v8a;armeabi-v7a;x86_64;x86
           AEGIS_OPENVPN3_OUT_DIR: ${{ github.workspace }}/openvpn3-out
           AEGIS_OPENVPN3_BUILD_ROOT: ${{ github.workspace }}/openvpn3-build
         run: |
           set -euo pipefail
           chmod +x private-source/ci/build-openvpn3-core-android.sh
           private-source/ci/build-openvpn3-core-android.sh
-          test -s openvpn3-out/jni/arm64-v8a/libaegis-openvpn3.so
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            test -s "openvpn3-out/jni/$abi/libaegis-openvpn3.so"
+            file "openvpn3-out/jni/$abi/libaegis-openvpn3.so"
+            ls -lh "openvpn3-out/jni/$abi/libaegis-openvpn3.so"
+          done
           test -n "$(find openvpn3-out/java -name 'ClientAPI_OpenVPNClient.java' -print -quit)"
-          file openvpn3-out/jni/arm64-v8a/libaegis-openvpn3.so
-          ls -lh openvpn3-out/jni/arm64-v8a/libaegis-openvpn3.so
+          test -n "$(find openvpn3-out/java -name 'ClientAPI_TunBuilderBase.java' -print -quit)"
       - name: Upload native probe
         uses: actions/upload-artifact@v4
         with:
-          name: aegis-430-openvpn3-native-probe
+          name: aegis-430-openvpn3-allabi-probe
           path: openvpn3-out
           if-no-files-found: error
           retention-days: 3
@@ -73,5 +76,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue create --repo "$GITHUB_REPOSITORY" \
-            --title "AEGIS-430-OVPN3-PROBE-SUCCESS-${GITHUB_RUN_ID}" \
-            --body "OpenVPN3 Android native probe succeeded. Run ID: ${GITHUB_RUN_ID}. Artifact: aegis-430-openvpn3-native-probe."
+            --title "AEGIS-430-OVPN3-ALLABI-SUCCESS-${GITHUB_RUN_ID}" \
+            --body "OpenVPN3 Android build succeeded for arm64-v8a, armeabi-v7a, x86_64 and x86. Run ID: ${GITHUB_RUN_ID}. Artifact: aegis-430-openvpn3-allabi-probe."
