@@ -1,0 +1,87 @@
+name: Aegis 4.3.0 Engine Integration Capture
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-430-engine-capture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Extract and apply final 4.2 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/private-source/$PROJECT_DIR" >> "$GITHUB_ENV"
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$GITHUB_WORKSPACE/private-source" bash "$GITHUB_WORKSPACE/private-source/ci/apply-aegis-420.sh"
+      - name: Collect engine integration sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/capture"
+          mkdir -p "$OUT/app/src/main/java/com/v2ray/ang" "$OUT/gradle"
+          cd "$PROJECT_DIR"
+          cp app/build.gradle.kts "$OUT/app/build.gradle.kts"
+          cp AndroidManifest.xml "$OUT/AndroidManifest.xml" 2>/dev/null || cp app/src/main/AndroidManifest.xml "$OUT/AndroidManifest.xml"
+          cp settings.gradle.kts "$OUT/settings.gradle.kts" 2>/dev/null || true
+          cp build.gradle.kts "$OUT/build.gradle.kts" 2>/dev/null || true
+          cp gradle/libs.versions.toml "$OUT/gradle/libs.versions.toml" 2>/dev/null || true
+          cp -R app/src/main/java/com/v2ray/ang/contracts "$OUT/app/src/main/java/com/v2ray/ang/contracts"
+          cp -R app/src/main/java/com/v2ray/ang/service "$OUT/app/src/main/java/com/v2ray/ang/service"
+          cp -R app/src/main/java/com/v2ray/ang/core "$OUT/app/src/main/java/com/v2ray/ang/core"
+          cp -R app/src/main/java/com/v2ray/ang/handler "$OUT/app/src/main/java/com/v2ray/ang/handler"
+          cp -R app/src/main/java/com/v2ray/ang/dto "$OUT/app/src/main/java/com/v2ray/ang/dto"
+          cp -R app/src/main/java/com/v2ray/ang/enums "$OUT/app/src/main/java/com/v2ray/ang/enums"
+          cp app/src/main/java/com/v2ray/ang/AppConfig.kt "$OUT/app/src/main/java/com/v2ray/ang/AppConfig.kt"
+          cp app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt "$OUT/app/src/main/java/com/v2ray/ang/MainViewModel.kt"
+          cp app/src/main/java/com/v2ray/ang/ui/main/MainContract.kt "$OUT/app/src/main/java/com/v2ray/ang/MainContract.kt"
+          cp app/src/main/java/com/v2ray/ang/ui/main/AegisProtocolRegistry.kt "$OUT/app/src/main/java/com/v2ray/ang/AegisProtocolRegistry.kt"
+          find "$OUT" -type f | sort > "$OUT/FILES.txt"
+          grep -RniE 'VpnService|ServiceControl|Tun2Socks|startCoreLoop|stopCoreLoop|protect\(|ParcelFileDescriptor|EConfigType|ProfileItem|importBatchConfig|importConfig|ActivityResult|OpenDocument|GetContent|registerForActivityResult' "$OUT" > "$OUT/ENGINE-HITS.txt" || true
+      - name: Upload capture
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-430-engine-integration-capture
+          path: capture
+          if-no-files-found: error
+          retention-days: 2
+      - name: Publish run marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "AEGIS-430-CAPTURE-${GITHUB_RUN_ID}" \
+            --body "Aegis 4.3 engine integration capture completed. Run ID: ${GITHUB_RUN_ID}. Artifact: aegis-430-engine-integration-capture. Commit: ${GITHUB_SHA}."
