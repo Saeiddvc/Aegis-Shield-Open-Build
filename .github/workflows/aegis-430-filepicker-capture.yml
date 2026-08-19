@@ -1,0 +1,58 @@
+name: Aegis 4.3 File Picker Capture
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-430-filepicker-capture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Capture picker implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf picker-work && mkdir picker-work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d picker-work
+          PROJECT_DIR="$(find picker-work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          OUT="$GITHUB_WORKSPACE/picker"
+          mkdir -p "$OUT"
+          find "$PROJECT_DIR/app/src/main/java" -type f -name '*.kt' -print0 | \
+            xargs -0 grep -lE 'fun launchFileChooser|launchFileChooser\s*=' | \
+            xargs -r -I{} cp --parents '{}' "$OUT"
+          grep -RniE 'launchFileChooser|ACTION_OPEN_DOCUMENT|OpenDocument|GetContent|type =|mime|MIME' "$OUT" > "$OUT/HITS.txt" || true
+          test -s "$OUT/HITS.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aegis-430-filepicker-capture
+          path: picker
+          if-no-files-found: error
+          retention-days: 2
+      - name: Publish marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "AEGIS-430-PICKER-${GITHUB_RUN_ID}" \
+            --body "Aegis 4.3 file-picker capture completed. Run ID: ${GITHUB_RUN_ID}. Artifact: aegis-430-filepicker-capture."
