@@ -1,0 +1,250 @@
+name: Aegis Shield 4.3.1 Adult Policy Final Tested
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-431-adult-policy-final-tested.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  final-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
+      AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish run start marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "AEGIS-431-ADULT-FINAL-START-${GITHUB_RUN_ID}" \
+            --body "Aegis 4.3.1 Adult policy final run started. Run ID: ${GITHUB_RUN_ID}. Commit: ${GITHUB_SHA}."
+
+      - name: Validate private source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Resolve Android NDK 29
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "$ANDROID_HOME/ndk/29.0.14206865" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
+          fi
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+
+      - name: Extract and apply deterministic 4.3.1 patch chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/private-source/$PROJECT_DIR" >> "$GITHUB_ENV"
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$GITHUB_WORKSPACE/private-source" bash "$GITHUB_WORKSPACE/private-source/ci/apply-aegis-430.sh"
+
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoChoiceUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoChoiceUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoImportFeedbackUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoImportFeedbackUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisOrchestratorUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisOrchestratorUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisArgoReachabilityUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisArgoReachabilityUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisZeroDelayRouteUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisZeroDelayRouteUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisProtectionUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisProtectionUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisAdvancedDeviceUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/main/AegisAdvancedDeviceUiTest.kt
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisAboutActivityUiTest.kt" app/src/androidTest/java/com/v2ray/ang/ui/AegisAboutActivityUiTest.kt
+          mkdir -p app/src/androidTest/java/com/v2ray/ang/service
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/AegisOpenVpnNativeRuntimeTest.kt" app/src/androidTest/java/com/v2ray/ang/service/AegisOpenVpnNativeRuntimeTest.kt
+
+      - name: Reuse verified all-ABI official OpenVPN3 build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/openvpn3-download"
+          gh run download 32235073201 \
+            --repo Saeiddvc/Aegis-Shield-Open-Build \
+            --name aegis-430-openvpn3-allabi-probe \
+            --dir "$GITHUB_WORKSPACE/openvpn3-download"
+          if [ -d "$GITHUB_WORKSPACE/openvpn3-download/jni" ]; then
+            mv "$GITHUB_WORKSPACE/openvpn3-download" "$GITHUB_WORKSPACE/openvpn3-out"
+          else
+            INNER="$(find "$GITHUB_WORKSPACE/openvpn3-download" -mindepth 1 -maxdepth 2 -type d -name jni -print -quit)"
+            test -n "$INNER"
+            ROOT="$(dirname "$INNER")"
+            mv "$ROOT" "$GITHUB_WORKSPACE/openvpn3-out"
+          fi
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            test -s "$GITHUB_WORKSPACE/openvpn3-out/jni/$abi/libaegis-openvpn3.so"
+          done
+
+      - name: Install OpenVPN3 runtime and C++ shared runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x private-source/ci/package-openvpn3-runtime.sh private-source/ci/install-openvpn3-runtime.sh
+          AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" private-source/ci/package-openvpn3-runtime.sh
+          AEGIS_PROJECT_DIR="$PROJECT_DIR" \
+          AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" \
+          AEGIS_OPENVPN3_BUILD_ROOT="$GITHUB_WORKSPACE/openvpn3-download" \
+            private-source/ci/install-openvpn3-runtime.sh
+
+      - name: Install verified Xray and HEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          mkdir -p app/libs
+          curl --fail --location --retry 4 --retry-all-errors --output app/libs/libv2ray.aar "$AAR_URL"
+          echo "$AAR_SHA256  app/libs/libv2ray.aar" | sha256sum --check --strict
+          bash "$GITHUB_WORKSPACE/private-source/ci/build-hev-tunnel.sh"
+
+      - name: Verify 4.3.1 Adult runtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle = Path('app/build.gradle.kts').read_text()
+          vm = Path('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt').read_text()
+          engine = Path('app/src/main/java/com/v2ray/ang/service/OpenVpn3EngineManager.kt').read_text()
+          activity = Path('app/src/main/java/com/v2ray/ang/ui/main/MainActivity.kt').read_text()
+          policy = Path('app/src/main/java/com/v2ray/ang/core/AegisAdultContentPolicy.kt').read_text()
+          assert 'versionName = "4.3.1"' in gradle and 'versionCode = 51' in gradle
+          assert 'PRIMARY_DNS = "1.1.1.3"' in policy
+          assert 'SECONDARY_DNS = "1.0.0.3"' in policy
+          assert 'CoreServiceManager.reloadCoreInPlace()' in vm
+          a = vm.index('fun setAdultContentBlocked')
+          b = vm.index('fun userRequestedDisconnect', a)
+          adult = vm[a:b]
+          assert 'MSG_STATE_STOP' not in adult
+          assert 'retrySmartConnectAfterStop' not in adult
+          assert 'EConfigType.OPENVPN' in adult
+          assert 'ACTION_ADULT_POLICY_REFRESH' in engine
+          assert 'fun refreshAdultPolicy' in engine
+          assert 'AegisAdultContentPolicy.dnsServers' in engine
+          assert 'adultBlocked' in engine
+          assert 'sendBroadcast' in activity and 'ACTION_ADULT_POLICY_REFRESH' in activity
+          for abi in ('arm64-v8a','armeabi-v7a','x86_64','x86'):
+              assert Path(f'app/libs/{abi}/libaegis-openvpn3.so').stat().st_size > 0
+              assert Path(f'app/libs/{abi}/libc++_shared.so').stat().st_size > 0
+              assert Path(f'app/libs/{abi}/libhev-socks5-tunnel.so').stat().st_size > 0
+          print('Aegis 4.3.1 Adult runtime contract OK')
+          PY
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon testPlaystoreDebugUnitTest
+
+      - name: Android lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon lintPlaystoreDebug
+
+      - name: Build and verify APK native payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon assemblePlaystoreDebug
+          python3 scripts/verify_apk.py
+          UNIVERSAL="$(find app/build/outputs/apk/playstore/debug -name '*universal.apk' -print -quit)"
+          test -n "$UNIVERSAL"
+          unzip -l "$UNIVERSAL" > "$GITHUB_WORKSPACE/apk-list.txt"
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            grep -q "lib/$abi/libaegis-openvpn3.so" "$GITHUB_WORKSPACE/apk-list.txt"
+            grep -q "lib/$abi/libc++_shared.so" "$GITHUB_WORKSPACE/apk-list.txt"
+            grep -q "lib/$abi/libhev-socks5-tunnel.so" "$GITHUB_WORKSPACE/apk-list.txt"
+          done
+
+      - name: Free disk and enable KVM
+        shell: bash
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/cmake || true
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+
+      - name: Android 16 instrumentation, OpenVPN3 JNI smoke and cold launch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 2048M
+          disk-size: 2048M
+          emulator-boot-timeout: 900
+          disable-animations: false
+          disable-linux-hw-accel: false
+          emulator-options: -no-snapshot -no-window -no-audio -gpu swiftshader_indirect -no-boot-anim
+          script: |
+            bash -lc 'set -euo pipefail; cd "$PROJECT_DIR"; chmod +x gradlew; ./gradlew --no-daemon connectedPlaystoreDebugAndroidTest; bash scripts/android16_cold_launch_test.sh'
+
+      - name: Package final APKs
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/release-files"
+          ARM64="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*arm64-v8a.apk' -print -quit)"
+          UNIVERSAL="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*universal.apk' -print -quit)"
+          test -n "$ARM64" && test -n "$UNIVERSAL"
+          cp "$ARM64" "$GITHUB_WORKSPACE/release-files/Aegis-Shield-VPN-4.3.1-ARM64.apk"
+          cp "$UNIVERSAL" "$GITHUB_WORKSPACE/release-files/Aegis-Shield-VPN-4.3.1-Universal.apk"
+          cd "$GITHUB_WORKSPACE/release-files"
+          sha256sum *.apk | tee SHA256SUMS.txt
+
+      - name: Upload final tested APKs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aegis-Shield-Android-4.3.1-final-tested
+          path: |
+            release-files/Aegis-Shield-VPN-4.3.1-ARM64.apk
+            release-files/Aegis-Shield-VPN-4.3.1-Universal.apk
+            release-files/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish success marker
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "AEGIS-431-ADULT-FINAL-SUCCESS-${GITHUB_RUN_ID}" \
+            --body "Aegis 4.3.1 Adult-policy hotfix passed runtime contract, unit/lint/APK checks, Android 16 instrumentation, OpenVPN3 JNI smoke and cold launch. Run ID: ${GITHUB_RUN_ID}. Artifact: Aegis-Shield-Android-4.3.1-final-tested."
