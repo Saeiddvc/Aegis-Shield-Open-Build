@@ -1,0 +1,164 @@
+name: Aegis 4.3 OpenVPN Fast Integration
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-430-openvpn-fast-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
+      AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish run marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "AEGIS-430-FAST-${GITHUB_RUN_ID}" \
+            --body "Aegis 4.3 fast OpenVPN integration started. Run ID: ${GITHUB_RUN_ID}. Commit: ${GITHUB_SHA}."
+      - name: Validate private source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Resolve Android NDK 29 without apt
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "$ANDROID_HOME/ndk/29.0.14206865" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
+          fi
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+      - name: Extract and patch Aegis 4.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/private-source/$PROJECT_DIR" >> "$GITHUB_ENV"
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$GITHUB_WORKSPACE/private-source" bash "$GITHUB_WORKSPACE/private-source/ci/apply-aegis-430.sh"
+      - name: Reuse verified all-ABI OpenVPN3 build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/openvpn3-download"
+          gh run download 32235073201 \
+            --repo Saeiddvc/Aegis-Shield-Open-Build \
+            --name aegis-430-openvpn3-allabi-probe \
+            --dir "$GITHUB_WORKSPACE/openvpn3-download"
+          if [ -d "$GITHUB_WORKSPACE/openvpn3-download/jni" ]; then
+            mv "$GITHUB_WORKSPACE/openvpn3-download" "$GITHUB_WORKSPACE/openvpn3-out"
+          else
+            INNER="$(find "$GITHUB_WORKSPACE/openvpn3-download" -mindepth 1 -maxdepth 2 -type d -name jni -print -quit)"
+            test -n "$INNER"
+            ROOT="$(dirname "$INNER")"
+            mv "$ROOT" "$GITHUB_WORKSPACE/openvpn3-out"
+          fi
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            test -s "$GITHUB_WORKSPACE/openvpn3-out/jni/$abi/libaegis-openvpn3.so"
+          done
+      - name: Package and install OpenVPN3 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x private-source/ci/package-openvpn3-runtime.sh private-source/ci/install-openvpn3-runtime.sh
+          AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" \
+            private-source/ci/package-openvpn3-runtime.sh
+          cd "$PROJECT_DIR"
+          AEGIS_PROJECT_DIR="$PROJECT_DIR" \
+          AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" \
+          AEGIS_OPENVPN3_BUILD_ROOT="$GITHUB_WORKSPACE/openvpn3-download" \
+            "$GITHUB_WORKSPACE/private-source/ci/install-openvpn3-runtime.sh"
+      - name: Install verified Xray and HEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          mkdir -p app/libs
+          curl --fail --location --retry 4 --retry-all-errors --output app/libs/libv2ray.aar "$AAR_URL"
+          echo "$AAR_SHA256  app/libs/libv2ray.aar" | sha256sum --check --strict
+          bash "$GITHUB_WORKSPACE/private-source/ci/build-hev-tunnel.sh"
+      - name: Contract check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          python3 - <<'PY'
+          from pathlib import Path
+          assert 'versionName = "4.3.0"' in Path('app/build.gradle.kts').read_text()
+          assert 'versionCode = 50' in Path('app/build.gradle.kts').read_text()
+          assert 'OpenVpn3EngineManager.start(this)' in Path('app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt').read_text()
+          assert 'System.loadLibrary("aegis-openvpn3")' in Path('app/src/main/java/com/v2ray/ang/service/OpenVpn3EngineManager.kt').read_text()
+          assert 'OpenVpnFmt.looksLikeProfile' in Path('app/src/main/java/com/v2ray/ang/handler/AngConfigManager.kt').read_text()
+          assert 'previousProtocol == SmartProtocol.OPENVPN' in Path('app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt').read_text()
+          for abi in ('arm64-v8a','armeabi-v7a','x86_64','x86'):
+              assert Path(f'app/libs/{abi}/libaegis-openvpn3.so').stat().st_size > 0
+              assert Path(f'app/libs/{abi}/libc++_shared.so').stat().st_size > 0
+          print('Aegis 4.3 fast integration contract OK')
+          PY
+      - name: Unit compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon testPlaystoreDebugUnitTest
+      - name: Lint and APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon lintPlaystoreDebug
+          ./gradlew --no-daemon assemblePlaystoreDebug
+          python3 scripts/verify_apk.py
+          UNIVERSAL="$(find app/build/outputs/apk/playstore/debug -name '*universal.apk' -print -quit)"
+          test -n "$UNIVERSAL"
+          unzip -l "$UNIVERSAL" > "$GITHUB_WORKSPACE/apk-list.txt"
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            grep -q "lib/$abi/libaegis-openvpn3.so" "$GITHUB_WORKSPACE/apk-list.txt"
+            grep -q "lib/$abi/libc++_shared.so" "$GITHUB_WORKSPACE/apk-list.txt"
+          done
+      - name: Upload probe APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-430-openvpn-fast-integration
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/playstore/debug/*.apk
+            ${{ github.workspace }}/apk-list.txt
+          if-no-files-found: error
+          retention-days: 3
+      - name: Publish success marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "AEGIS-430-FAST-SUCCESS-${GITHUB_RUN_ID}" \
+            --body "Aegis 4.3 fast OpenVPN integration compiled, linted and packaged successfully. Run ID: ${GITHUB_RUN_ID}. Artifact: aegis-430-openvpn-fast-integration."
