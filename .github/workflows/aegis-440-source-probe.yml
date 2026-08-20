@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   actions: read
+  issues: write
 
 jobs:
   probe:
@@ -52,3 +53,10 @@ jobs:
           name: aegis-440-privacy-source-probe
           path: privacy-source/
           retention-days: 1
+      - name: Publish probe marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "AEGIS-440-PRIVACY-PROBE-SUCCESS-${GITHUB_RUN_ID}" \
+            --body "Aegis 4.4 privacy source probe completed. Run ID: ${GITHUB_RUN_ID}. Artifact: aegis-440-privacy-source-probe."
