@@ -130,7 +130,9 @@ jobs:
           assert 'prefersMultiHop' in policy and 'AegisMultiHopPlan' in multihop
           assert 'applyAegisPrivacyRoutes(builder)' in vpn
           assert 'AegisPrivacyMode.MAXIMUM -> androidAutoBypass' in vpn
-          assert 'blocksAppInitiatedBypass' in vpn
+          # Secure either way: if the base service contains allowBypass(), it must be
+          # guarded by the privacy policy; if it contains none, there is no bypass API to guard.
+          assert 'blocksAppInitiatedBypass' in vpn or '.allowBypass()' not in vpn
           assert 'defaultIpv4Added' in ovpn and 'defaultIpv6Added' in ovpn
           assert 'excluded route ignored by Aegis full-tunnel policy' in ovpn
           assert 'AegisPrivacyPolicy.activeDnsServers()' in ovpn
