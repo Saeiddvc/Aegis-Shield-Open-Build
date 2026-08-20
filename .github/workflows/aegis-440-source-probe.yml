@@ -1,0 +1,54 @@
+name: Aegis 4.4 Privacy Source Probe
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-440-source-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Extract final 4.3.1 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$GITHUB_WORKSPACE/private-source" bash "$GITHUB_WORKSPACE/private-source/ci/apply-aegis-430.sh"
+          OUT="$GITHUB_WORKSPACE/privacy-source"
+          mkdir -p "$OUT"
+          cp app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt "$OUT/"
+          cp app/src/main/java/com/v2ray/ang/service/OpenVpn3EngineManager.kt "$OUT/"
+          cp app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt "$OUT/"
+          cp app/src/main/java/com/v2ray/ang/ui/main/SmartHomeScreen.kt "$OUT/"
+          cp app/src/main/java/com/v2ray/ang/AppConfig.kt "$OUT/"
+          cp app/src/main/java/com/v2ray/ang/ui/main/MainContract.kt "$OUT/"
+          cp app/build.gradle.kts "$OUT/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aegis-440-privacy-source-probe
+          path: privacy-source/
+          retention-days: 1
