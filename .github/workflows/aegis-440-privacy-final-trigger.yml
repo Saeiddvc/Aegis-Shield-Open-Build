@@ -1,0 +1,22 @@
+name: Trigger Aegis 4.4 Privacy Final QA
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-440-privacy-final-trigger.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger final 4.4 workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run aegis-440-privacy-final-tested.yml --repo "$GITHUB_REPOSITORY" --ref main
