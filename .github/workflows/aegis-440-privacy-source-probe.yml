@@ -1,0 +1,64 @@
+name: Aegis 4.4 Privacy Source Probe
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/aegis-440-privacy-source-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Extract 4.3.1 final source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$GITHUB_WORKSPACE/private-source" bash "$GITHUB_WORKSPACE/private-source/ci/apply-aegis-430.sh"
+          python3 - <<'PY'
+          from pathlib import Path
+          files = [
+              'app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt',
+              'app/src/main/java/com/v2ray/ang/service/OpenVpn3EngineManager.kt',
+              'app/src/main/java/com/v2ray/ang/ui/main/SmartHomeScreen.kt',
+              'app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt',
+          ]
+          needles = ('configureVpnService', 'bypassLan', 'Builder()', '.establish()', 'addRoute(', 'allowFamily(', 'ProtectionControlsCard', 'failEstablishedConnection', 'reloadSelectedCoreInPlace')
+          for f in files:
+              text = Path(f).read_text().splitlines()
+              print(f'===== {f} =====')
+              hits = set()
+              for i,line in enumerate(text):
+                  if any(n in line for n in needles):
+                      for j in range(max(0,i-5), min(len(text),i+9)):
+                          hits.add(j)
+              for j in sorted(hits):
+                  print(f'{j+1:04d}: {text[j]}')
+          PY
+      - name: Publish probe marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue create --repo "$GITHUB_REPOSITORY" --title "AEGIS-440-PRIVACY-PROBE-${GITHUB_RUN_ID}" --body "Aegis 4.4 privacy source probe completed. Run ID: ${GITHUB_RUN_ID}."
