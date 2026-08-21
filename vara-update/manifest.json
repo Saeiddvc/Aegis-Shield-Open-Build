@@ -1,0 +1,11 @@
+{
+  "channel": "alpha",
+  "application_version": "0.3.0",
+  "engine_version": "0.3.0-alpha",
+  "threat_db_version": "2026.08.21.1",
+  "rules_version": "0.3.0-alpha.1",
+  "threat_db_url": "https://raw.githubusercontent.com/Saeiddvc/Aegis-Shield-Open-Build/main/vara-update/threat-db.json",
+  "threat_db_sha256": "a4557f330e0c172de77092a2f8cfbc76975dd5bd7ff239de7bf30dc7be1a1b95",
+  "published_at": "2026-08-21T18:00:00+03:30",
+  "note": "VARA Alpha update channel is active. This package contains only safe test signatures; production threat feeds will be normalized by VARA Cloud."
+}
