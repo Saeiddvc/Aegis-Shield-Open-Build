@@ -29,8 +29,8 @@ jobs:
           set -euo pipefail
           ROOT="$RUNNER_TEMP/vara-build"
           mkdir -p "$ROOT"
-          LINE=$(grep -m1 "android.tgz" .github/workflows/vara-security-build.yml)
-          B64=$(printf '%s' "$LINE" | sed -E "s/.*echo '([^']+)'.*/\1/")
+          B64=$(grep -oP "(?<=echo ')[A-Za-z0-9+/=]+" .github/workflows/vara-security-build.yml | head -1)
+          test -n "$B64"
           printf '%s' "$B64" | base64 -d > "$ROOT/android.tgz"
           tar -xzf "$ROOT/android.tgz" -C "$ROOT"
           echo "ANDROID_PROJECT=$ROOT/android" >> "$GITHUB_ENV"
