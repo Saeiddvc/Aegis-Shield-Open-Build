@@ -1,0 +1,2 @@
+VARA Security 0.3.1 release build
+Navigation/back stack, Persian UI consistency, status bar spacing, About/Update dialog hotfix.
