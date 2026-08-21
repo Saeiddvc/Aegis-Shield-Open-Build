@@ -1,10 +1,11 @@
-name: VARA Security 0.3 PR Build
+name: VARA Security 0.3.1 UI Hotfix
 
 on:
   pull_request:
     branches: [ main ]
     paths:
       - '.github/workflows/vara-security-030-pr-build.yml'
+      - '.github/workflows/vara-security-031-ui-hotfix.yml'
       - 'vara-build-030/**'
 
 permissions:
@@ -24,16 +25,102 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Extract Android source
+      - name: Extract 0.3 Android source
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/vara-030"
+          ROOT="$RUNNER_TEMP/vara-031"
           mkdir -p "$ROOT"
           base64 -d vara-build-030/android-src.b64 > "$ROOT/android.tgz"
           tar -xzf "$ROOT/android.tgz" -C "$ROOT"
-          test -f "$ROOT/android/settings.gradle"
           echo "ANDROID_PROJECT=$ROOT/android" >> "$GITHUB_ENV"
+      - name: Apply navigation and Persian UI hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("${{ runner.temp }}/vara-031/android/app/src/main/java/com/varasecurity/alpha/MainActivity.java")
+          s = p.read_text()
+          s = s.replace('private static final String VERSION = "0.3.0 Alpha";', 'private static final String VERSION = "0.3.1 Alpha";')
+          s = s.replace('private Button fileButton;\n', 'private Button fileButton;\n    private String currentPage = "home";\n')
+          s = s.replace('        if (!prefs.getBoolean("onboarded", false)) showOnboarding(); else showHome();\n    }', '        if (!prefs.getBoolean("onboarded", false)) showOnboarding(); else showHome();\n    }\n\n    @Override\n    public void onBackPressed() {\n        if ("account".equals(currentPage) || "settings".equals(currentPage) || "update".equals(currentPage)) { showMore(); return; }\n        if (!"home".equals(currentPage)) { showHome(); return; }\n        super.onBackPressed();\n    }\n\n    private void goBack() { onBackPressed(); }')
+          s = s.replace('    private void showHome() {\n', '    private void showHome() {\n        currentPage = "home";\n')
+          s = s.replace('    private void showProtection() {\n', '    private void showProtection() {\n        currentPage = "protection";\n')
+          s = s.replace('    private void showActivity() {\n', '    private void showActivity() {\n        currentPage = "activity";\n')
+          s = s.replace('    private void showMore() {\n', '    private void showMore() {\n        currentPage = "more";\n')
+          s = s.replace('    private void showAccount() {\n', '    private void showAccount() {\n        currentPage = "account";\n')
+          s = s.replace('    private void showSettings() {\n', '    private void showSettings() {\n        currentPage = "settings";\n')
+          s = s.replace('    private void showUpdateCenter() {\n', '    private void showUpdateCenter() {\n        currentPage = "update";\n')
+          s = s.replace('addQuickTile(root, "Protection", "تنظیم حالت حفاظت و رفتار اسکن", v -> showProtection());', 'addQuickTile(root, "محافظت", "تنظیم حالت حفاظت و رفتار اسکن", v -> showProtection());')
+          s = s.replace('addQuickTile(root, "Activity", "رویدادهای امنیتی و بروزرسانی‌ها", v -> showActivity());', 'addQuickTile(root, "فعالیت‌ها", "رویدادهای امنیتی و بروزرسانی‌ها", v -> showActivity());')
+          s = s.replace('addQuickTile(root, "More", "حساب، تنظیمات، بروزرسانی و درباره VARA", v -> showMore());', 'addQuickTile(root, "بیشتر", "حساب، تنظیمات، بروزرسانی و درباره VARA", v -> showMore());')
+          s = s.replace('addHeader(root, "Protection");', 'addHeader(root, "محافظت");')
+          s = s.replace('addHeader(root, "Activity");', 'addHeader(root, "فعالیت‌ها");')
+          s = s.replace('addHeader(root, "More");', 'addHeader(root, "بیشتر");')
+          s = s.replace('addHeader(root, "Settings");', 'addHeader(root, "تنظیمات");')
+          s = s.replace('addHeader(root, "Update Center");', 'addHeader(root, "مرکز بروزرسانی");')
+          s = s.replace('addSettingRow(root, "Settings", "Performance / Privacy / Notifications", v -> showSettings());', 'addSettingRow(root, "تنظیمات", "کارایی، حریم خصوصی و اعلان‌ها", v -> showSettings());')
+          s = s.replace('addSettingRow(root, "Update Center", prefs.getString("db_version", "Local Alpha"), v -> showUpdateCenter());', 'addSettingRow(root, "مرکز بروزرسانی", prefs.getString("db_version", "Local Alpha"), v -> showUpdateCenter());')
+          s = s.replace('addSettingRow(root, "About", "VARA Security " + VERSION, v -> showAbout());', 'addSettingRow(root, "درباره VARA", "نسخه " + VERSION, v -> showAbout());')
+          s = s.replace('VARA فقط فایل‌ها و برنامه‌های لازم را بررسی می‌کند تا فشار روی دستگاه پایین بماند.', 'VARA فقط موارد لازم را بررسی می‌کند تا مصرف باتری و پردازنده پایین بماند.')
+          s = s.replace('TextView db = text("پایگاه تهدید: " + prefs.getString("db_version", "Local Alpha") + "   •   حالت: " + prefs.getString("mode", "Auto"), 12, false, muted());', 'TextView db = text("پایگاه تهدیدها: " + ("Local Alpha".equals(prefs.getString("db_version", "Local Alpha")) ? "آماده" : "به‌روز") + "   •   حالت: " + prefs.getString("mode", "Auto"), 12, false, muted());')
+          s = s.replace('root.setPadding(dp(22), dp(24), dp(22), dp(30));', 'root.setPadding(dp(22), dp(48), dp(22), dp(30));')
+          s = s.replace('    private void backHome(LinearLayout root) {\n        Button back = secondaryButton("بازگشت به خانه");\n        back.setOnClickListener(v -> showHome());\n        root.addView(back, lp(-1, dp(50), 24));\n        addBottomNote(root);\n    }', '    private void backHome(LinearLayout root) {\n        addBottomNote(root);\n    }')
+          pattern = r'    private void addHeader\(LinearLayout root, String section\) \{.*?\n    \}\n\n    private void addQuickTile'
+          replacement = '''    private void addHeader(LinearLayout root, String section) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.vara_icon);
+        row.addView(logo, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        TextView brand = text("VARA Security", 18, true, navy());
+        TextView sub = text(section, 12, false, muted());
+        labels.addView(brand);
+        labels.addView(sub);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(0, -2, 1);
+        labelLp.leftMargin = dp(10);
+        row.addView(labels, labelLp);
+        if (!"خانه".equals(section)) {
+            Button back = secondaryButton("→");
+            back.setTextSize(20);
+            back.setContentDescription("بازگشت");
+            back.setOnClickListener(v -> goBack());
+            row.addView(back, new LinearLayout.LayoutParams(dp(48), dp(42)));
+        }
+        root.addView(row, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private void addQuickTile'''
+          s, n = re.subn(pattern, replacement, s, flags=re.S)
+          if n != 1: raise SystemExit('addHeader patch failed')
+          about_pattern = r'    private void showAbout\(\) \{.*?\n    \}\n\n    private void scanDevice'
+          about_replacement = '''    private void showAbout() {
+        new AlertDialog.Builder(this)
+                .setTitle("VARA Security")
+                .setMessage("نسخه " + VERSION + "\\n\\nVARA برای حفاظت سبک و کم‌مزاحمت روی Windows و Android طراحی شده است.\\n\\nقابلیت‌های این Alpha: اسکن درخواستی، تحلیل ریسک برنامه‌ها، پروفایل محلی، تنظیمات، تاریخچه فعالیت و مرکز بروزرسانی.\\n\\nحفاظت لحظه‌ای و Threat Cloud کامل هنوز در این نسخه فعال نیست.")
+                .setPositiveButton("بستن", null)
+                .show();
+    }
+
+    private void scanDevice'''
+          s, n = re.subn(about_pattern, about_replacement, s, flags=re.S)
+          if n != 1: raise SystemExit('about patch failed')
+          s = s.replace('setTitle("VARA Update Center")', 'setTitle("مرکز بروزرسانی VARA")')
+          s = s.replace('setPositiveButton("باشه", (d, w) -> showUpdateCenter())', 'setPositiveButton("بستن", (d, w) -> showUpdateCenter())')
+          p.write_text(s)
+
+          g = Path("${{ runner.temp }}/vara-031/android/app/build.gradle")
+          t = g.read_text()
+          t = t.replace("applicationId 'com.varasecurity.alpha03'", "applicationId 'com.varasecurity.alpha031'")
+          t = t.replace('versionCode 300', 'versionCode 301')
+          t = t.replace("versionName '0.3.0-alpha'", "versionName '0.3.1-alpha'")
+          g.write_text(t)
+          PY
       - name: Build Android APK
         shell: bash
         run: |
@@ -52,11 +139,11 @@ jobs:
           unzip -l "$APK" | grep -q classes.dex
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           mkdir -p "$RUNNER_TEMP/android-release"
-          cp "$APK" "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.0-Alpha.apk"
-          sha256sum "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.0-Alpha.apk" > "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.0-Alpha.sha256"
+          cp "$APK" "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.1-Alpha.apk"
+          sha256sum "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.1-Alpha.apk" > "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.1-Alpha.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: VARA-Security-Android-0.3.0-Alpha
+          name: VARA-Security-Android-0.3.1-Alpha
           path: ${{ runner.temp }}/android-release/*
           if-no-files-found: error
 
@@ -71,35 +158,45 @@ jobs:
       - name: Extract Windows source
         shell: pwsh
         run: |
-          $Root = Join-Path $env:RUNNER_TEMP 'vara-030'
+          $Root = Join-Path $env:RUNNER_TEMP 'vara-031'
           New-Item -ItemType Directory -Force -Path $Root | Out-Null
           $b64 = Get-Content -Raw 'vara-build-030/windows-src.b64'
           [IO.File]::WriteAllBytes((Join-Path $Root 'windows.tgz'), [Convert]::FromBase64String($b64.Trim()))
           tar -xzf (Join-Path $Root 'windows.tgz') -C $Root
-          if (!(Test-Path (Join-Path $Root 'windows/VaraSecurity.csproj'))) { throw 'Windows source bundle invalid' }
+          $p = Join-Path $Root 'windows/Program.cs'
+          $s = Get-Content -Raw $p
+          $s = $s.Replace('0.3.0-local','0.3.1-local').Replace('0.3.0 Alpha','0.3.1 Alpha').Replace('VARA-Security-Windows/0.3.0','VARA-Security-Windows/0.3.1')
+          Set-Content -Path $p -Value $s -Encoding utf8
+          $csp = Join-Path $Root 'windows/VaraSecurity.csproj'
+          $cs = Get-Content -Raw $csp
+          $cs = $cs.Replace('<Version>0.3.0</Version>','<Version>0.3.1</Version>').Replace('<FileVersion>0.3.0.0</FileVersion>','<FileVersion>0.3.1.0</FileVersion>')
+          Set-Content -Path $csp -Value $cs -Encoding utf8
+          $issp = Join-Path $Root 'windows/installer.iss'
+          $iss = Get-Content -Raw $issp
+          $iss = $iss.Replace('0.3.0-alpha','0.3.1-alpha').Replace('VARA-Security-Windows-0.3.0-Alpha-Setup','VARA-Security-Windows-0.3.1-Alpha-Setup')
+          Set-Content -Path $issp -Value $iss -Encoding utf8
           "WINDOWS_PROJECT=$(Join-Path $Root 'windows')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Build Windows x64 app
         shell: pwsh
         run: |
           & (Join-Path $env:WINDOWS_PROJECT 'make-icon.ps1')
           dotnet publish (Join-Path $env:WINDOWS_PROJECT 'VaraSecurity.csproj') -c Release -r win-x64 --self-contained true -o (Join-Path $env:WINDOWS_PROJECT 'publish') /p:PublishSingleFile=true /p:EnableCompressionInSingleFile=true /p:PublishTrimmed=false
-          if (!(Test-Path (Join-Path $env:WINDOWS_PROJECT 'publish/VaraSecurity.exe'))) { throw 'Windows publish failed' }
       - name: Build Windows installer
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
           Push-Location $env:WINDOWS_PROJECT
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss
-          $Setup = Join-Path $env:WINDOWS_PROJECT 'installer-output/VARA-Security-Windows-0.3.0-Alpha-Setup.exe'
+          $Setup = Join-Path $env:WINDOWS_PROJECT 'installer-output/VARA-Security-Windows-0.3.1-Alpha-Setup.exe'
           if (!(Test-Path $Setup)) { throw 'Installer not created' }
           $Out = Join-Path $env:RUNNER_TEMP 'windows-release'
           New-Item -ItemType Directory -Force -Path $Out | Out-Null
-          Copy-Item $Setup (Join-Path $Out 'VARA-Security-Windows-0.3.0-Alpha-Setup.exe')
+          Copy-Item $Setup (Join-Path $Out 'VARA-Security-Windows-0.3.1-Alpha-Setup.exe')
           $hash = (Get-FileHash $Setup -Algorithm SHA256).Hash.ToLower()
-          "$hash  VARA-Security-Windows-0.3.0-Alpha-Setup.exe" | Set-Content (Join-Path $Out 'VARA-Security-Windows-0.3.0-Alpha-Setup.sha256')
+          "$hash  VARA-Security-Windows-0.3.1-Alpha-Setup.exe" | Set-Content (Join-Path $Out 'VARA-Security-Windows-0.3.1-Alpha-Setup.sha256')
           Pop-Location
       - uses: actions/upload-artifact@v4
         with:
-          name: VARA-Security-Windows-0.3.0-Alpha
+          name: VARA-Security-Windows-0.3.1-Alpha
           path: ${{ runner.temp }}/windows-release/*
           if-no-files-found: error
