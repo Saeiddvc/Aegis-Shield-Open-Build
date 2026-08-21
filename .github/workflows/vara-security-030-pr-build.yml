@@ -1,4 +1,4 @@
-name: VARA Security 0.3 PR Build
+name: VARA Security 0.3.1 Build
 
 on:
   pull_request:
@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/vara-030"
+          ROOT="$RUNNER_TEMP/vara-031"
           mkdir -p "$ROOT"
           base64 -d vara-build-030/android-src.b64 > "$ROOT/android.tgz"
           tar -xzf "$ROOT/android.tgz" -C "$ROOT"
@@ -52,11 +52,11 @@ jobs:
           unzip -l "$APK" | grep -q classes.dex
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           mkdir -p "$RUNNER_TEMP/android-release"
-          cp "$APK" "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.0-Alpha.apk"
-          sha256sum "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.0-Alpha.apk" > "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.0-Alpha.sha256"
+          cp "$APK" "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.1-Alpha.apk"
+          sha256sum "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.1-Alpha.apk" > "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.1-Alpha.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: VARA-Security-Android-0.3.0-Alpha
+          name: VARA-Security-Android-0.3.1-Alpha
           path: ${{ runner.temp }}/android-release/*
           if-no-files-found: error
 
@@ -71,7 +71,7 @@ jobs:
       - name: Extract Windows source
         shell: pwsh
         run: |
-          $Root = Join-Path $env:RUNNER_TEMP 'vara-030'
+          $Root = Join-Path $env:RUNNER_TEMP 'vara-031'
           New-Item -ItemType Directory -Force -Path $Root | Out-Null
           $b64 = Get-Content -Raw 'vara-build-030/windows-src.b64'
           [IO.File]::WriteAllBytes((Join-Path $Root 'windows.tgz'), [Convert]::FromBase64String($b64.Trim()))
@@ -94,12 +94,13 @@ jobs:
           if (!(Test-Path $Setup)) { throw 'Installer not created' }
           $Out = Join-Path $env:RUNNER_TEMP 'windows-release'
           New-Item -ItemType Directory -Force -Path $Out | Out-Null
-          Copy-Item $Setup (Join-Path $Out 'VARA-Security-Windows-0.3.0-Alpha-Setup.exe')
-          $hash = (Get-FileHash $Setup -Algorithm SHA256).Hash.ToLower()
-          "$hash  VARA-Security-Windows-0.3.0-Alpha-Setup.exe" | Set-Content (Join-Path $Out 'VARA-Security-Windows-0.3.0-Alpha-Setup.sha256')
+          $Final = Join-Path $Out 'VARA-Security-Windows-0.3.1-Alpha-Setup.exe'
+          Copy-Item $Setup $Final
+          $hash = (Get-FileHash $Final -Algorithm SHA256).Hash.ToLower()
+          "$hash  VARA-Security-Windows-0.3.1-Alpha-Setup.exe" | Set-Content (Join-Path $Out 'VARA-Security-Windows-0.3.1-Alpha-Setup.sha256')
           Pop-Location
       - uses: actions/upload-artifact@v4
         with:
-          name: VARA-Security-Windows-0.3.0-Alpha
+          name: VARA-Security-Windows-0.3.1-Alpha
           path: ${{ runner.temp }}/windows-release/*
           if-no-files-found: error
