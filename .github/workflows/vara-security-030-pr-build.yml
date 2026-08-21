@@ -43,29 +43,43 @@ jobs:
           test -f "$ROOT/android/settings.gradle"
           test -f "$ROOT/android/app/build.gradle"
           echo "ANDROID_PROJECT=$ROOT/android" >> "$GITHUB_ENV"
-      - name: Build Android APK
+      - name: Build unsigned Android release APK
         shell: bash
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
           cd "$ANDROID_PROJECT"
-          gradle --no-daemon clean assembleDebug
-      - name: Validate Android APK
+          gradle --no-daemon clean assembleRelease
+          test -f "$ANDROID_PROJECT/app/build/outputs/apk/release/app-release-unsigned.apk"
+      - name: Sign and validate Android APK with stable alpha key
         shell: bash
         run: |
           set -euo pipefail
-          APK="$ANDROID_PROJECT/app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$APK"
-          unzip -t "$APK" >/dev/null
-          unzip -l "$APK" | grep -q classes.dex
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
-          mkdir -p "$RUNNER_TEMP/android-release"
-          cp "$APK" "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.1-Alpha.apk"
-          sha256sum "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.1-Alpha.apk" > "$RUNNER_TEMP/android-release/VARA-Security-Android-0.3.1-Alpha.sha256"
+          ROOT="$RUNNER_TEMP/vara-031"
+          KEYSTORE="$ROOT/vara-alpha-dev.keystore"
+          base64 --decode vara-build-031/vara-alpha-dev.keystore.b64 > "$KEYSTORE"
+          keytool -list -keystore "$KEYSTORE" -alias vara_alpha -storepass 'VARAAlphaDev2026!' >/dev/null
+          UNSIGNED="$ANDROID_PROJECT/app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED="$ROOT/vara-aligned.apk"
+          OUT="$RUNNER_TEMP/android-release"
+          mkdir -p "$OUT"
+          FINAL="$OUT/VARA-Security-Android-0.3.1-Alpha.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks "$KEYSTORE" \
+            --ks-key-alias vara_alpha \
+            --ks-pass pass:'VARAAlphaDev2026!' \
+            --key-pass pass:'VARAAlphaDev2026!' \
+            --out "$FINAL" \
+            "$ALIGNED"
+          unzip -t "$FINAL" >/dev/null
+          unzip -l "$FINAL" | grep -q classes.dex
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$FINAL"
+          sha256sum "$FINAL" > "$OUT/VARA-Security-Android-0.3.1-Alpha.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: VARA-Security-Android-0.3.1-Alpha
+          name: VARA-Security-Android-0.3.1-Alpha-StableSigned
           path: ${{ runner.temp }}/android-release/*
           if-no-files-found: error
 
