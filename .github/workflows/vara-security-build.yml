@@ -1,0 +1,112 @@
+name: VARA Security 0.2.0 Alpha Build
+
+on:
+  push:
+    branches: [ vara-security-0.2.0-build ]
+    paths:
+      - '.github/workflows/vara-security-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Create Android source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/vara-build"
+          mkdir -p "$ROOT"
+          echo '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' | base64 -d > "$ROOT/android.tgz"
+          tar -xzf "$ROOT/android.tgz" -C "$ROOT"
+          echo "ANDROID_PROJECT=$ROOT/android" >> "$GITHUB_ENV"
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Build Android APK
+        shell: bash
+        run: |
+          cd "$ANDROID_PROJECT"
+          gradle --no-daemon clean assembleDebug
+      - name: Validate APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$ANDROID_PROJECT/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          unzip -t "$APK" >/dev/null
+          unzip -l "$APK" | grep -q 'classes.dex'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          mkdir -p "$RUNNER_TEMP/android-release"
+          cp "$APK" "$RUNNER_TEMP/android-release/VARA-Security-Android-0.2.0-Alpha.apk"
+          sha256sum "$RUNNER_TEMP/android-release/VARA-Security-Android-0.2.0-Alpha.apk" > "$RUNNER_TEMP/android-release/VARA-Security-Android-0.2.0-Alpha.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VARA-Security-Android-0.2.0-Alpha
+          path: ${{ runner.temp }}/android-release/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows Installer
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Create Windows source
+        shell: pwsh
+        run: |
+          $Root = Join-Path $env:RUNNER_TEMP 'vara-build'
+          New-Item -ItemType Directory -Force -Path $Root | Out-Null
+          $B64 = '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'
+          $Bytes = [Convert]::FromBase64String($B64)
+          $Archive = Join-Path $Root 'windows.tgz'
+          [IO.File]::WriteAllBytes($Archive, $Bytes)
+          tar -xzf $Archive -C $Root
+          "WINDOWS_PROJECT=$(Join-Path $Root 'windows')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Generate VARA icon
+        shell: pwsh
+        run: "& (Join-Path $env:WINDOWS_PROJECT 'make-icon.ps1')"
+      - name: Publish Windows app
+        shell: pwsh
+        run: |
+          dotnet publish (Join-Path $env:WINDOWS_PROJECT 'VaraSecurity.csproj') -c Release -r win-x64 --self-contained true -o (Join-Path $env:WINDOWS_PROJECT 'publish') /p:PublishSingleFile=true /p:EnableCompressionInSingleFile=true /p:PublishTrimmed=false
+          if (!(Test-Path (Join-Path $env:WINDOWS_PROJECT 'publish/VaraSecurity.exe'))) { throw 'Windows publish failed' }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+      - name: Build installer
+        shell: pwsh
+        run: |
+          Push-Location $env:WINDOWS_PROJECT
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss
+          $Setup = Join-Path $env:WINDOWS_PROJECT 'installer-output/VARA-Security-Windows-0.2.0-Alpha-Setup.exe'
+          if (!(Test-Path $Setup)) { throw 'Installer not created' }
+          $Out = Join-Path $env:RUNNER_TEMP 'windows-release'
+          New-Item -ItemType Directory -Force -Path $Out | Out-Null
+          Copy-Item $Setup (Join-Path $Out 'VARA-Security-Windows-0.2.0-Alpha-Setup.exe')
+          $hash = (Get-FileHash $Setup -Algorithm SHA256).Hash.ToLower()
+          "$hash  VARA-Security-Windows-0.2.0-Alpha-Setup.exe" | Set-Content (Join-Path $Out 'VARA-Security-Windows-0.2.0-Alpha-Setup.sha256')
+          Pop-Location
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VARA-Security-Windows-0.2.0-Alpha
+          path: ${{ runner.temp }}/windows-release/*
+          if-no-files-found: error
