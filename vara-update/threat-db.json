@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "version": "2026.08.21.1",
+  "sha256": [
+    "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
+  ],
+  "patterns": [
+    "EICAR-STANDARD-ANTIVIRUS-TEST-FILE"
+  ],
+  "source_note": "VARA Alpha test database. No third-party proprietary signatures are included."
+}
