@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/vara-security-build.yml'
       - '.github/workflows/vara-security-pr-build.yml'
+      - 'vara-build/android-src.b64'
 
 permissions:
   contents: read
@@ -29,10 +30,9 @@ jobs:
           set -euo pipefail
           ROOT="$RUNNER_TEMP/vara-build"
           mkdir -p "$ROOT"
-          B64=$(grep -oP "(?<=echo ')[A-Za-z0-9+/=]+" .github/workflows/vara-security-build.yml | head -1)
-          test -n "$B64"
-          printf '%s' "$B64" | base64 -d > "$ROOT/android.tgz"
+          base64 -d vara-build/android-src.b64 > "$ROOT/android.tgz"
           tar -xzf "$ROOT/android.tgz" -C "$ROOT"
+          test -f "$ROOT/android/settings.gradle"
           echo "ANDROID_PROJECT=$ROOT/android" >> "$GITHUB_ENV"
       - name: Install SDK and build APK
         shell: bash
@@ -44,6 +44,7 @@ jobs:
       - name: Validate and stage APK
         shell: bash
         run: |
+          set -euo pipefail
           APK="$ANDROID_PROJECT/app/build/outputs/apk/debug/app-debug.apk"
           test -f "$APK"
           unzip -t "$APK" >/dev/null
