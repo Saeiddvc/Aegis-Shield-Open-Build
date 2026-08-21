@@ -1,0 +1,104 @@
+name: VARA Security PR Build
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/vara-security-build.yml'
+      - '.github/workflows/vara-security-pr-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Extract Android source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/vara-build"
+          mkdir -p "$ROOT"
+          LINE=$(grep -m1 "android.tgz" .github/workflows/vara-security-build.yml)
+          B64=$(printf '%s' "$LINE" | sed -E "s/.*echo '([^']+)'.*/\1/")
+          printf '%s' "$B64" | base64 -d > "$ROOT/android.tgz"
+          tar -xzf "$ROOT/android.tgz" -C "$ROOT"
+          echo "ANDROID_PROJECT=$ROOT/android" >> "$GITHUB_ENV"
+      - name: Install SDK and build APK
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          cd "$ANDROID_PROJECT"
+          gradle --no-daemon clean assembleDebug
+      - name: Validate and stage APK
+        shell: bash
+        run: |
+          APK="$ANDROID_PROJECT/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          unzip -t "$APK" >/dev/null
+          unzip -l "$APK" | grep -q classes.dex
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          mkdir -p "$RUNNER_TEMP/android-release"
+          cp "$APK" "$RUNNER_TEMP/android-release/VARA-Security-Android-0.2.0-Alpha.apk"
+          sha256sum "$RUNNER_TEMP/android-release/VARA-Security-Android-0.2.0-Alpha.apk" > "$RUNNER_TEMP/android-release/VARA-Security-Android-0.2.0-Alpha.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VARA-Security-Android-0.2.0-Alpha
+          path: ${{ runner.temp }}/android-release/*
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Extract Windows source bundle
+        shell: pwsh
+        run: |
+          $Root = Join-Path $env:RUNNER_TEMP 'vara-build'
+          New-Item -ItemType Directory -Force -Path $Root | Out-Null
+          $Text = Get-Content -Raw '.github/workflows/vara-security-build.yml'
+          $Match = [regex]::Match($Text, "\$B64 = '([^']+)'", [System.Text.RegularExpressions.RegexOptions]::Singleline)
+          if (!$Match.Success) { throw 'Windows source bundle not found' }
+          [IO.File]::WriteAllBytes((Join-Path $Root 'windows.tgz'), [Convert]::FromBase64String($Match.Groups[1].Value))
+          tar -xzf (Join-Path $Root 'windows.tgz') -C $Root
+          "WINDOWS_PROJECT=$(Join-Path $Root 'windows')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build Windows x64 app
+        shell: pwsh
+        run: |
+          & (Join-Path $env:WINDOWS_PROJECT 'make-icon.ps1')
+          dotnet publish (Join-Path $env:WINDOWS_PROJECT 'VaraSecurity.csproj') -c Release -r win-x64 --self-contained true -o (Join-Path $env:WINDOWS_PROJECT 'publish') /p:PublishSingleFile=true /p:EnableCompressionInSingleFile=true /p:PublishTrimmed=false
+          if (!(Test-Path (Join-Path $env:WINDOWS_PROJECT 'publish/VaraSecurity.exe'))) { throw 'Windows publish failed' }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          Push-Location $env:WINDOWS_PROJECT
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss
+          $Setup = Join-Path $env:WINDOWS_PROJECT 'installer-output/VARA-Security-Windows-0.2.0-Alpha-Setup.exe'
+          if (!(Test-Path $Setup)) { throw 'Installer not created' }
+          $Out = Join-Path $env:RUNNER_TEMP 'windows-release'
+          New-Item -ItemType Directory -Force -Path $Out | Out-Null
+          Copy-Item $Setup (Join-Path $Out 'VARA-Security-Windows-0.2.0-Alpha-Setup.exe')
+          $hash = (Get-FileHash $Setup -Algorithm SHA256).Hash.ToLower()
+          "$hash  VARA-Security-Windows-0.2.0-Alpha-Setup.exe" | Set-Content (Join-Path $Out 'VARA-Security-Windows-0.2.0-Alpha-Setup.sha256')
+          Pop-Location
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VARA-Security-Windows-0.2.0-Alpha
+          path: ${{ runner.temp }}/windows-release/*
+          if-no-files-found: error
