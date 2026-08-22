@@ -1,0 +1,22 @@
+name: Free Public Runner Probe
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/free-public-runner-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirm free public GitHub-hosted runner
+        run: |
+          echo "PUBLIC_GITHUB_RUNNER_OK"
+          echo "repo=${GITHUB_REPOSITORY}"
+          echo "event=${GITHUB_EVENT_NAME}"
