@@ -1,0 +1,259 @@
+name: Vara Smart VPN 4.3.1 RC4 Open Build
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/vara-smart-vpn-431-rc4-open-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
+      AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
+      NDK_VERSION: 29.0.14206865
+
+    steps:
+      - name: Checkout public build repo
+        uses: actions/checkout@v4
+
+      - name: Validate private-source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+
+      - name: Checkout private Vara source branch
+        uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          ref: vara-vpn-4.3.1-rebrand-fix
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: private-source/SaeidVPN-Android-3.2.0-final-source.zip
+
+      - name: Android SDK and NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install native build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;$NDK_VERSION" "cmake;3.22.1" "platform-tools" "platforms;android-36"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq swig ninja-build
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Extract private source and inject current patch toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          PROJECT_DIR="$GITHUB_WORKSPACE/private-source/$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          rm -rf "$PROJECT_DIR/ci" "$PROJECT_DIR/.github/support"
+          mkdir -p "$PROJECT_DIR/.github"
+          cp -a "$GITHUB_WORKSPACE/private-source/ci" "$PROJECT_DIR/ci"
+          cp -a "$GITHUB_WORKSPACE/private-source/.github/support" "$PROJECT_DIR/.github/support"
+
+      - name: Apply stable 4.3.1 source chain and Vara runtime fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$PWD" bash ci/apply-aegis-430.sh
+          python3 ci/vara-rebrand.py "$PWD"
+          python3 ci/vara-runtime-hotfix.py "$PWD"
+          grep -q 'versionName = "4.3.1"' app/build.gradle.kts
+          grep -q 'androidx.work:work-runtime:2.11.2' app/build.gradle.kts
+          grep -q 'NotificationManager.ensureForeground(this)' app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt
+          grep -R -q 'Vara Smart VPN' app/src/main
+
+      - name: Make field-test build non-debuggable while keeping installable debug signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$PROJECT_DIR/app/build.gradle.kts" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          if 'debug {\n            isDebuggable = false' not in s:
+              marker = '    buildTypes {\n'
+              if marker not in s:
+                  raise SystemExit('buildTypes block not found')
+              s = s.replace(marker, marker + '        debug {\n            isDebuggable = false\n        }\n', 1)
+          p.write_text(s)
+          PY
+          grep -q 'debug {' "$PROJECT_DIR/app/build.gradle.kts"
+          grep -q 'isDebuggable = false' "$PROJECT_DIR/app/build.gradle.kts"
+
+      - name: Install verified Xray core
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          mkdir -p app/libs
+          curl --fail --location --retry 4 --retry-all-errors --output app/libs/libv2ray.aar "$AAR_URL"
+          echo "$AAR_SHA256  app/libs/libv2ray.aar" | sha256sum --check --strict
+
+      - name: Build HEV tun2socks JNI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          bash ci/build-hev-tunnel.sh
+
+      - name: Build and install OpenVPN3 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          export AEGIS_OPENVPN3_ABIS='arm64-v8a;x86_64'
+          export AEGIS_OPENVPN3_BUILD_ROOT="$PWD/.aegis-openvpn3-build"
+          export AEGIS_OPENVPN3_OUT_DIR="$PWD/.aegis-openvpn3-out"
+          bash ci/build-openvpn3-core-android.sh
+          AEGIS_PROJECT_DIR="$PWD" bash ci/install-openvpn3-runtime.sh
+          test -s app/libs/arm64-v8a/libaegis-openvpn3.so
+          test -s app/libs/x86_64/libaegis-openvpn3.so
+
+      - name: Install focused Android 16 VPN runtime smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PROJECT_DIR/app/src/androidTest/java/com/v2ray/ang"
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/VaraRuntimeSmokeTest.kt" \
+             "$PROJECT_DIR/app/src/androidTest/java/com/v2ray/ang/VaraRuntimeSmokeTest.kt"
+
+      - name: Resolve runtime dependency graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:dependencies --configuration playstoreDebugRuntimeClasspath > /tmp/runtime-deps.txt
+          grep -q 'androidx.work:work-runtime:2.11.2' /tmp/runtime-deps.txt
+
+      - name: Unit tests and lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace testPlaystoreDebugUnitTest lintPlaystoreDebug
+
+      - name: Build source-generated APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace assemblePlaystoreDebug
+          python3 scripts/verify_apk.py
+          find app/build/outputs/apk/playstore/debug -name '*.apk' -print
+
+      - name: Verify final APK contains WorkManager and is non-debuggable
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          UNIVERSAL="$(find app/build/outputs/apk/playstore/debug -name '*universal.apk' -print -quit)"
+          ARM64="$(find app/build/outputs/apk/playstore/debug -name '*arm64-v8a.apk' -print -quit)"
+          test -n "$UNIVERSAL"
+          test -n "$ARM64"
+          apkanalyzer dex packages "$UNIVERSAL" > /tmp/dex-packages.txt
+          grep -q 'androidx.work' /tmp/dex-packages.txt
+          apkanalyzer manifest print "$UNIVERSAL" > /tmp/manifest.xml
+          ! grep -q 'android:debuggable="true"' /tmp/manifest.xml
+          unzip -l "$ARM64" | grep -q 'lib/arm64-v8a/libaegis-openvpn3.so'
+          unzip -l "$ARM64" | grep -q 'lib/arm64-v8a/libhev-socks5-tunnel.so'
+
+      - name: Free runner disk and enable KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          df -h /
+
+      - name: Android 16 cold start and VPN foreground-service smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 3072M
+          disk-size: 3072M
+          emulator-boot-timeout: 900
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -no-audio -gpu swiftshader_indirect -no-boot-anim
+          script: |
+            bash -lc 'set -euo pipefail
+            cd "$GITHUB_WORKSPACE/private-source/work/$(basename "$PROJECT_DIR")"
+            ./gradlew --no-daemon --stacktrace connectedPlaystoreDebugAndroidTest \
+              -Pandroid.testInstrumentationRunnerArguments.class=com.v2ray.ang.VaraRuntimeSmokeTest
+            bash scripts/android16_cold_launch_test.sh
+            sleep 3
+            adb logcat -d > /tmp/vara-rc4-logcat.txt
+            ! grep -E "FATAL EXCEPTION|NoClassDefFoundError|ClassNotFoundException|ForegroundServiceDidNotStartInTimeException" /tmp/vara-rc4-logcat.txt
+            adb shell uiautomator dump /sdcard/vara-ui.xml >/dev/null
+            adb pull /sdcard/vara-ui.xml /tmp/vara-ui.xml >/dev/null
+            grep -q "Vara" /tmp/vara-ui.xml'
+
+      - name: Prepare RC4 deliverable
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-files
+          ARM64="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*arm64-v8a.apk' -print -quit)"
+          UNIVERSAL="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*universal.apk' -print -quit)"
+          test -n "$ARM64"
+          test -n "$UNIVERSAL"
+          cp "$ARM64" release-files/Vara-Smart-VPN-4.3.1-RC4-ARM64.apk
+          cp "$UNIVERSAL" release-files/Vara-Smart-VPN-4.3.1-RC4-Universal.apk
+          sha256sum release-files/*.apk | tee release-files/SHA256SUMS.txt
+
+      - name: Upload tested RC4
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vara-Smart-VPN-4.3.1-RC4-Android16-tested
+          path: release-files/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vara-Smart-VPN-RC4-failure-diagnostics
+          path: |
+            /tmp/runtime-deps.txt
+            /tmp/dex-packages.txt
+            /tmp/manifest.xml
+            /tmp/vara-rc4-logcat.txt
+            /tmp/vara-ui.xml
+            ${{ env.PROJECT_DIR }}/app/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
