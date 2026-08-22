@@ -1,0 +1,112 @@
+name: VARA Security 0.4.6 Build
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/vara-security-046-build.yml'
+      - 'vara-build-046/**'
+      - 'vara-build-045/**'
+      - 'vara-build-044/**'
+      - 'vara-build-043/**'
+      - 'vara-build-042/android/**'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Prepare VARA 0.4.6 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/vara-046"
+          mkdir -p "$WORK"
+          cp -a vara-build-042/android "$WORK/android"
+          python3 vara-build-043/patch_043.py "$WORK/android"
+          python3 vara-build-044/patch_044.py "$WORK/android"
+          python3 vara-build-045/patch_045.py "$WORK/android"
+          python3 vara-build-046/patch_046.py "$WORK/android"
+          grep -q "versionCode 406" "$WORK/android/app/build.gradle"
+          grep -q "versionName '0.4.6-alpha'" "$WORK/android/app/build.gradle"
+          grep -q '0.4.6 ALPHA' "$WORK/android/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+          grep -q 'App Risk Review' "$WORK/android/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+          grep -q 'analyzeAppRisk' "$WORK/android/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+          grep -q 'FLAG_DEBUGGABLE' "$WORK/android/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+          grep -q 'setAcceptThirdPartyCookies(web, false)' "$WORK/android/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+          grep -q 'FLAG_SECURE' "$WORK/android/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+          echo "ANDROID_PROJECT=$WORK/android" >> "$GITHUB_ENV"
+
+      - name: Build unsigned release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          cd "$ANDROID_PROJECT"
+          gradle --no-daemon clean assembleRelease
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Sign, validate and compatibility-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/vara-046-sign"
+          mkdir -p "$ROOT"
+          KEYSTORE="$ROOT/vara-alpha-dev.keystore"
+          base64 --decode vara-build-031/vara-alpha-dev.keystore.b64 > "$KEYSTORE"
+          keytool -list -keystore "$KEYSTORE" -alias vara_alpha -storepass 'VARAAlphaDev2026!' >/dev/null
+          UNSIGNED="$ANDROID_PROJECT/app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED="$ROOT/vara-aligned.apk"
+          OUT="$RUNNER_TEMP/android-release"
+          mkdir -p "$OUT"
+          FINAL="$OUT/VARA-Security-Android-0.4.6-Alpha.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks "$KEYSTORE" --ks-key-alias vara_alpha \
+            --ks-pass pass:'VARAAlphaDev2026!' --key-pass pass:'VARAAlphaDev2026!' \
+            --out "$FINAL" "$ALIGNED"
+
+          unzip -t "$FINAL" >/dev/null
+          unzip -p "$FINAL" classes.dex | strings > "$ROOT/dex-strings.txt"
+          if grep -q 'EICAR-STANDARD-ANTIVIRUS-TEST-FILE' "$ROOT/dex-strings.txt"; then
+            echo 'Forbidden AV test payload found in release binary' >&2
+            exit 1
+          fi
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$FINAL" | tee "$OUT/signature.txt"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$FINAL" | tee "$OUT/badging.txt"
+          grep -q "versionCode='406'" "$OUT/badging.txt"
+          grep -q "versionName='0.4.6-alpha'" "$OUT/badging.txt"
+          grep -q "targetSdkVersion:'35'" "$OUT/badging.txt"
+
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$FINAL" | tee "$OUT/permissions.txt"
+          grep -q 'android.permission.INTERNET' "$OUT/permissions.txt"
+          grep -q 'android.permission.QUERY_ALL_PACKAGES' "$OUT/permissions.txt"
+          if grep -Eq 'READ_SMS|RECEIVE_SMS|SEND_SMS|READ_CONTACTS|WRITE_CONTACTS|RECORD_AUDIO|CAMERA|ACCESS_FINE_LOCATION|SYSTEM_ALERT_WINDOW|REQUEST_INSTALL_PACKAGES|BIND_ACCESSIBILITY_SERVICE' "$OUT/permissions.txt"; then
+            echo 'Unexpected sensitive permission detected' >&2
+            exit 1
+          fi
+
+          grep -q 'android:allowBackup="false"' "$ANDROID_PROJECT/app/src/main/AndroidManifest.xml"
+          grep -q 'android:usesCleartextTraffic="false"' "$ANDROID_PROJECT/app/src/main/AndroidManifest.xml"
+          sha256sum "$FINAL" | tee "$OUT/VARA-Security-Android-0.4.6-Alpha.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VARA-Security-Android-0.4.6-Alpha
+          path: ${{ runner.temp }}/android-release/*
+          if-no-files-found: error
