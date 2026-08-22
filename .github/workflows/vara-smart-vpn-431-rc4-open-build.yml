@@ -49,16 +49,18 @@ jobs:
       - name: Android SDK and NDK
         uses: android-actions/setup-android@v3
 
-      - name: Install native build tools
+      - name: Install native build tools and open-source typography
         shell: bash
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "ndk;$NDK_VERSION" "cmake;3.22.1" "platform-tools" "platforms;android-36"
           sudo apt-get update -qq
-          sudo apt-get install -y -qq swig ninja-build
+          sudo apt-get install -y -qq swig ninja-build fontconfig fonts-roboto
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          fc-match 'Roboto:style=Regular'
+          fc-match 'Roboto:style=Bold'
 
       - name: Extract private source and inject current patch toolchain
         shell: bash
@@ -82,6 +84,20 @@ jobs:
           set -euo pipefail
           cd "$PROJECT_DIR"
           AEGIS_SOURCE_ROOT="$PWD" bash ci/apply-aegis-430.sh
+
+          # Theme.kt still references the historical resource identifiers. Supply
+          # open-source Roboto under those stable names so the source and verifier
+          # both retain a concrete packaged font resource.
+          mkdir -p app/src/main/res/font
+          REGULAR_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Regular' | head -n1)"
+          BOLD_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Bold' | head -n1)"
+          test -s "$REGULAR_FONT"
+          test -s "$BOLD_FONT"
+          cp "$REGULAR_FONT" app/src/main/res/font/b_traffic_regular.ttf
+          cp "$BOLD_FONT" app/src/main/res/font/b_traffic_bold.ttf
+          test -s app/src/main/res/font/b_traffic_regular.ttf
+          test -s app/src/main/res/font/b_traffic_bold.ttf
+
           python3 ci/vara-rebrand.py "$PWD"
           python3 ci/vara-runtime-hotfix.py "$PWD"
           grep -q 'versionName = "4.3.1"' app/build.gradle.kts
@@ -185,6 +201,8 @@ jobs:
           ! grep -q 'android:debuggable="true"' /tmp/manifest.xml
           unzip -l "$ARM64" | grep -q 'lib/arm64-v8a/libaegis-openvpn3.so'
           unzip -l "$ARM64" | grep -q 'lib/arm64-v8a/libhev-socks5-tunnel.so'
+          unzip -l "$ARM64" | grep -q 'res/font/b_traffic_regular.ttf'
+          unzip -l "$ARM64" | grep -q 'res/font/b_traffic_bold.ttf'
 
       - name: Free runner disk and enable KVM
         shell: bash
