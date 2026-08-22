@@ -39,6 +39,7 @@ jobs:
           python3 vara-build-043/patch_043.py "$WORK/android"
           python3 vara-build-044/patch_044.py "$WORK/android"
           python3 vara-build-045/patch_045.py "$WORK/android"
+          python3 vara-build-046/fix_patch_046.py vara-build-046/patch_046.py
           python3 vara-build-046/patch_046.py "$WORK/android"
           grep -q "versionCode 406" "$WORK/android/app/build.gradle"
           grep -q "versionName '0.4.6-alpha'" "$WORK/android/app/build.gradle"
