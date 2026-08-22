@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "ndk;$NDK_VERSION" "cmake;3.22.1" "platform-tools" "platforms;android-36"
+          sdkmanager "ndk;$NDK_VERSION" "cmake;3.22.1" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
           sudo apt-get update -qq
           sudo apt-get install -y -qq swig ninja-build fontconfig fonts-roboto
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
@@ -85,9 +85,9 @@ jobs:
           cd "$PROJECT_DIR"
           AEGIS_SOURCE_ROOT="$PWD" bash ci/apply-aegis-430.sh
 
-          # Theme.kt still references the historical resource identifiers. Supply
-          # open-source Roboto under those stable names so the source and verifier
-          # both retain a concrete packaged font resource.
+          # Theme.kt retains these stable resource identifiers. Supply open-source
+          # Roboto files under those names; runtime validation checks the Android
+          # resource table rather than relying on a physical ZIP path.
           mkdir -p app/src/main/res/font
           REGULAR_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Regular' | head -n1)"
           BOLD_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Bold' | head -n1)"
@@ -177,12 +177,19 @@ jobs:
           cd "$PROJECT_DIR"
           ./gradlew --no-daemon --stacktrace testPlaystoreDebugUnitTest lintPlaystoreDebug
 
-      - name: Build source-generated APK
+      - name: Build source-generated APK and verify Android resources
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
           ./gradlew --no-daemon --stacktrace assemblePlaystoreDebug
+          UNIVERSAL="$(find app/build/outputs/apk/playstore/debug -name '*universal.apk' -print -quit)"
+          test -n "$UNIVERSAL"
+          AAPT2_BIN="$ANDROID_HOME/build-tools/36.0.0/aapt2"
+          test -x "$AAPT2_BIN"
+          "$AAPT2_BIN" dump resources "$UNIVERSAL" > /tmp/vara-resources.txt
+          grep -q 'b_traffic_regular' /tmp/vara-resources.txt
+          grep -q 'b_traffic_bold' /tmp/vara-resources.txt
           python3 scripts/verify_apk.py
           find app/build/outputs/apk/playstore/debug -name '*.apk' -print
 
@@ -201,8 +208,8 @@ jobs:
           ! grep -q 'android:debuggable="true"' /tmp/manifest.xml
           unzip -l "$ARM64" | grep -q 'lib/arm64-v8a/libaegis-openvpn3.so'
           unzip -l "$ARM64" | grep -q 'lib/arm64-v8a/libhev-socks5-tunnel.so'
-          unzip -l "$ARM64" | grep -q 'res/font/b_traffic_regular.ttf'
-          unzip -l "$ARM64" | grep -q 'res/font/b_traffic_bold.ttf'
+          grep -q 'b_traffic_regular' /tmp/vara-resources.txt
+          grep -q 'b_traffic_bold' /tmp/vara-resources.txt
 
       - name: Free runner disk and enable KVM
         shell: bash
@@ -270,8 +277,10 @@ jobs:
             /tmp/runtime-deps.txt
             /tmp/dex-packages.txt
             /tmp/manifest.xml
+            /tmp/vara-resources.txt
             /tmp/vara-rc4-logcat.txt
             /tmp/vara-ui.xml
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/playstore/debug/*.apk
             ${{ env.PROJECT_DIR }}/app/build/reports/**
           if-no-files-found: ignore
           retention-days: 7
