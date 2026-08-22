@@ -30,7 +30,14 @@ jobs:
           set -euo pipefail
           ROOT="$RUNNER_TEMP/vara-040"
           mkdir -p "$ROOT"
-          tr -d '\r\n ' < vara-build-040/android-src.b64 > "$ROOT/android-src.b64"
+          cat vara-build-040/android-src.part00 \
+              vara-build-040/android-src.part01 \
+              vara-build-040/android-src.part02 \
+              vara-build-040/android-src.part03 \
+              vara-build-040/android-src.part04 \
+              vara-build-040/android-src.part05 \
+              vara-build-040/android-src.part06 \
+              vara-build-040/android-src.part07 | tr -d '\r\n ' > "$ROOT/android-src.b64"
           base64 --decode "$ROOT/android-src.b64" > "$ROOT/android.tgz"
           gzip -t "$ROOT/android.tgz"
           tar -xzf "$ROOT/android.tgz" -C "$ROOT"
