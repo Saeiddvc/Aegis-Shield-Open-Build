@@ -70,7 +70,7 @@ rep(
                 patchCurrent ? t("Patch level " + patchLevel + " is within the 180-day review window", "سطح وصله " + patchLevel + " در بازه بررسی ۱۸۰ روزه است")
                         : t("Patch level " + patchLevel + " should be reviewed for a system update", "سطح وصله " + patchLevel + " برای به‌روزرسانی سیستم نیاز به بررسی دارد"),
                 patchCurrent,
-                () -> openSettings(Settings.ACTION_SYSTEM_UPDATE_SETTINGS)));
+                () -> openSettings("android.settings.SYSTEM_UPDATE_SETTINGS")));
 
         LinearLayout summary = card();''',
     "actionable security patch audit row",
@@ -99,7 +99,7 @@ gradle.write_text(g, encoding="utf-8")
 checks = [
     'isSecurityPatchCurrent()',
     'VERSION.SECURITY_PATCH',
-    'ACTION_SYSTEM_UPDATE_SETTINGS',
+    'android.settings.SYSTEM_UPDATE_SETTINGS',
     'older than 180 days',
     '0.5.5 ALPHA',
 ]
