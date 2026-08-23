@@ -83,17 +83,17 @@ rep(
 
         long patchAge = securityPatchAgeDays();
         boolean patchFresh = securityPatchFresh();
-        String patchLevel = android.os.Build.VERSION.SECURITY_PATCH;
+        String freshnessPatchLevel = android.os.Build.VERSION.SECURITY_PATCH;
         String patchDetail;
-        if (patchLevel == null || patchLevel.trim().isEmpty() || patchAge == Long.MAX_VALUE) {
+        if (freshnessPatchLevel == null || freshnessPatchLevel.trim().isEmpty() || patchAge == Long.MAX_VALUE) {
             patchDetail = t("Security patch level unavailable — review system updates",
                     "سطح وصله امنیتی در دسترس نیست — به‌روزرسانی‌های سیستم را بررسی کنید");
         } else if (patchFresh) {
-            patchDetail = t("Patch " + patchLevel + " — " + patchAge + " days old",
-                    "وصله " + patchLevel + " — مربوط به " + patchAge + " روز قبل");
+            patchDetail = t("Patch " + freshnessPatchLevel + " — " + patchAge + " days old",
+                    "وصله " + freshnessPatchLevel + " — مربوط به " + patchAge + " روز قبل");
         } else {
-            patchDetail = t("Patch " + patchLevel + " — older than 180 days; review system updates",
-                    "وصله " + patchLevel + " — قدیمی‌تر از ۱۸۰ روز؛ به‌روزرسانی سیستم را بررسی کنید");
+            patchDetail = t("Patch " + freshnessPatchLevel + " — older than 180 days; review system updates",
+                    "وصله " + freshnessPatchLevel + " — قدیمی‌تر از ۱۸۰ روز؛ به‌روزرسانی سیستم را بررسی کنید");
         }
         content.addView(auditRow(
                 t("Android security patch", "وصله امنیتی اندروید"),
