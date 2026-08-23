@@ -54,13 +54,6 @@ rep(
     "secure session state reset",
 )
 
-# Make the on-screen protection disclosure match the controls that are actually enforced.
-rep(
-    '• Mixed content blocked", "• فقط پیمایش HTTPS\\n• خطاهای TLS به‌صورت بسته مدیریت می‌شوند\\n• ترافیک بدون رمزنگاری غیرفعال است\\n• دسترسی فایل و محتوا بسته است\\n• محتوای ترکیبی مسدود است")',
-    '• Mixed content blocked\\n• Browser debugging, geolocation and pop-up windows disabled", "• فقط پیمایش HTTPS\\n• خطاهای TLS به‌صورت بسته مدیریت می‌شوند\\n• ترافیک بدون رمزنگاری غیرفعال است\\n• دسترسی فایل و محتوا بسته است\\n• محتوای ترکیبی مسدود است\\n• دیباگ مرورگر، موقعیت مکانی و پنجره‌های بازشونده غیرفعال است")',
-    "protection disclosure",
-)
-
 # Version metadata.
 s = s.replace('0.5.1 ALPHA', '0.5.2 ALPHA')
 s = s.replace('0.5.1 Alpha • versionCode 501', '0.5.2 Alpha • versionCode 502')
