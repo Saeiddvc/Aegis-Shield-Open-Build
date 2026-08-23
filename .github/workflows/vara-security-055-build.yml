@@ -84,7 +84,7 @@ jobs:
           grep -q 'setDownloadListener' "$MAIN"
           grep -q 'setSafeBrowsingEnabled(true)' "$MAIN"
           grep -q 'VERSION.SECURITY_PATCH' "$MAIN"
-          grep -q 'ACTION_SYSTEM_UPDATE_SETTINGS' "$MAIN"
+          grep -q 'android.settings.SYSTEM_UPDATE_SETTINGS' "$MAIN"
           grep -q '180-day review window' "$MAIN"
           echo "ANDROID_PROJECT=$WORK/android" >> "$GITHUB_ENV"
 
