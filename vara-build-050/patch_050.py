@@ -20,15 +20,15 @@ def rep(old: str, new: str, label: str):
 
 # Typography: use Android system sans families consistently and reduce the heavy visual weight.
 rep(
-    '        v.setTypeface(Typeface.create("sans", bold ? Typeface.BOLD : Typeface.NORMAL));',
+    '        v.setTypeface(fa ? Typeface.create("sans", bold ? Typeface.BOLD : Typeface.NORMAL) : Typeface.create(bold ? "sans-serif-medium" : "sans-serif", Typeface.NORMAL));',
     '        v.setTypeface(Typeface.create(bold ? "sans-serif-medium" : "sans-serif", Typeface.NORMAL));',
     "system typography",
 )
 
 # Top navigation: replace oversized chevrons and floating white button treatment with a cleaner native-feeling back control.
 rep(
-    '        TextView nav = tv(back ? (fa ? "›" : "‹") : "☰", back ? 34 : 28, NAVY, false);\n        nav.setGravity(Gravity.CENTER);\n        nav.setBackground(rounded(Color.WHITE, 18));\n        nav.setElevation(dp(1));',
-    '        TextView nav = tv(back ? (fa ? "→" : "←") : "☰", back ? 22 : 26, NAVY, true);\n        nav.setGravity(Gravity.CENTER);\n        nav.setBackground(rounded(back ? Color.TRANSPARENT : Color.WHITE, 16));\n        if (!back) nav.setElevation(dp(1));',
+    '        TextView nav = tv(back ? (fa ? "›" : "‹") : "☰", back ? 34 : 28, NAVY, false);\n        nav.setGravity(Gravity.CENTER);\n        nav.setBackgroundColor(Color.TRANSPARENT);\n        nav.setContentDescription(back ? t("Back", "بازگشت") : t("Menu", "منو"));',
+    '        TextView nav = tv(back ? (fa ? "→" : "←") : "☰", back ? 22 : 26, NAVY, true);\n        nav.setGravity(Gravity.CENTER);\n        nav.setBackground(rounded(back ? Color.TRANSPARENT : Color.WHITE, 16));\n        if (!back) nav.setElevation(dp(1));\n        nav.setContentDescription(back ? t("Back", "بازگشت") : t("Menu", "منو"));',
     "clean top navigation",
 )
 
