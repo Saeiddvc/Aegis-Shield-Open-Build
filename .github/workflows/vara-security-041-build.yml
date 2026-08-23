@@ -1,0 +1,96 @@
+name: VARA Security 0.4.1 Build
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/vara-security-041-build.yml'
+      - 'vara-build-041/**'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Extract VARA 0.4.1 Android source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/vara-041"
+          mkdir -p "$ROOT"
+          cat vara-build-041/android-src.part00 \
+              vara-build-041/android-src.part01 \
+              vara-build-041/android-src.part02 \
+              vara-build-041/android-src.part03 \
+              vara-build-041/android-src.part04 \
+              vara-build-041/android-src.part05 \
+              vara-build-041/android-src.part06 \
+              vara-build-041/android-src.part07 | tr -d '\r\n ' > "$ROOT/android-src.b64"
+          base64 --decode "$ROOT/android-src.b64" > "$ROOT/android.tgz"
+          gzip -t "$ROOT/android.tgz"
+          tar -xzf "$ROOT/android.tgz" -C "$ROOT"
+          test -f "$ROOT/android/settings.gradle"
+          test -f "$ROOT/android/app/build.gradle"
+          grep -R "versionCode 401" "$ROOT/android/app/build.gradle"
+          if grep -R -a -q "EICAR-STANDARD-ANTIVIRUS-TEST-FILE\|X5O!P%@AP" "$ROOT/android"; then
+            echo "Release source contains forbidden AV test payload"
+            exit 1
+          fi
+          echo "ANDROID_PROJECT=$ROOT/android" >> "$GITHUB_ENV"
+      - name: Build unsigned release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          cd "$ANDROID_PROJECT"
+          gradle --no-daemon clean assembleRelease
+          test -f "$ANDROID_PROJECT/app/build/outputs/apk/release/app-release-unsigned.apk"
+      - name: Sign and validate with stable VARA alpha key
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/vara-041"
+          KEYSTORE="$ROOT/vara-alpha-dev.keystore"
+          base64 --decode vara-build-031/vara-alpha-dev.keystore.b64 > "$KEYSTORE"
+          keytool -list -keystore "$KEYSTORE" -alias vara_alpha -storepass 'VARAAlphaDev2026!' >/dev/null
+          UNSIGNED="$ANDROID_PROJECT/app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED="$ROOT/vara-aligned.apk"
+          OUT="$RUNNER_TEMP/android-release"
+          mkdir -p "$OUT"
+          FINAL="$OUT/VARA-Security-Android-0.4.1-Alpha.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks "$KEYSTORE" \
+            --ks-key-alias vara_alpha \
+            --ks-pass pass:'VARAAlphaDev2026!' \
+            --key-pass pass:'VARAAlphaDev2026!' \
+            --out "$FINAL" \
+            "$ALIGNED"
+          unzip -t "$FINAL" >/dev/null
+          unzip -l "$FINAL" | grep -q classes.dex
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$FINAL"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$FINAL" | tee "$OUT/badging.txt"
+          grep -q "versionCode='401'" "$OUT/badging.txt"
+          if grep -a -q "EICAR-STANDARD-ANTIVIRUS-TEST-FILE\|X5O!P%@AP" "$FINAL"; then
+            echo "Signed APK contains forbidden AV test payload"
+            exit 1
+          fi
+          sha256sum "$FINAL" > "$OUT/VARA-Security-Android-0.4.1-Alpha.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VARA-Security-Android-0.4.1-Alpha
+          path: ${{ runner.temp }}/android-release/*
+          if-no-files-found: error
