@@ -1,6 +1,6 @@
 name: Trigger Vara Smart VPN RC4
 
-# Trigger revision: verifier-contract-fix-2
+# Trigger revision: status-beacon-1
 on:
   push:
     branches: [ main ]
