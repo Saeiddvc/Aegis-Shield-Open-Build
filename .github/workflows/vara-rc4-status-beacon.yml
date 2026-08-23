@@ -1,0 +1,58 @@
+name: Vara Smart VPN RC4 Status Beacon
+
+on:
+  workflow_run:
+    workflows: ["Vara Smart VPN 4.3.1 RC4 Open Build"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout public build repo
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Publish machine-readable RC4 status
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          STATUS: ${{ github.event.workflow_run.status }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          UPDATED_AT: ${{ github.event.workflow_run.updated_at }}
+        run: |
+          set -euo pipefail
+          mkdir -p status
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = {
+              "workflow": "Vara Smart VPN 4.3.1 RC4 Open Build",
+              "run_id": int(os.environ["RUN_ID"]),
+              "run_number": int(os.environ["RUN_NUMBER"]),
+              "status": os.environ["STATUS"],
+              "conclusion": os.environ["CONCLUSION"],
+              "head_sha": os.environ["HEAD_SHA"],
+              "run_url": os.environ["RUN_URL"],
+              "updated_at": os.environ["UPDATED_AT"],
+          }
+          Path("status/vara-smart-vpn-rc4.json").write_text(
+              json.dumps(data, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add status/vara-smart-vpn-rc4.json
+          if git diff --cached --quiet; then
+            echo "Status unchanged; nothing to commit."
+            exit 0
+          fi
+          git commit -m "Update Vara Smart VPN RC4 build status"
+          git push origin HEAD:main
