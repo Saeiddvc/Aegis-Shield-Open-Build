@@ -1,0 +1,26 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.varasecurity.alpha031'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.varasecurity.alpha031'
+        minSdk 26
+        targetSdk 35
+        versionCode 402
+        versionName '0.4.2-alpha'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
