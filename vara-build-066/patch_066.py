@@ -22,15 +22,15 @@ def rep(old: str, new: str, label: str):
 # observe UI content and gestures. Surface this as a review signal without labeling it malware
 # and without blocking accessibility-dependent users from Protected Browser/SafePay.
 rep(
-    '''    private boolean automaticTimeZoneEnabled() {
-        try { return Settings.Global.getInt(getContentResolver(), Settings.Global.AUTO_TIME_ZONE, 0) == 1; }
-        catch (Exception ignored) { return false; }
+    '''    private boolean securityPatchFresh() {
+        long age = securityPatchAgeDays();
+        return age >= 0 && age <= 180;
     }
 
     private int deviceTrustIssueCount() {''',
-    '''    private boolean automaticTimeZoneEnabled() {
-        try { return Settings.Global.getInt(getContentResolver(), Settings.Global.AUTO_TIME_ZONE, 0) == 1; }
-        catch (Exception ignored) { return false; }
+    '''    private boolean securityPatchFresh() {
+        long age = securityPatchAgeDays();
+        return age >= 0 && age <= 180;
     }
 
     private int enabledThirdPartyAccessibilityServiceCount() {
@@ -61,9 +61,11 @@ rep(
 rep(
     '''        if (!automaticTimeEnabled()) n++;
         if (!automaticTimeZoneEnabled()) n++;
+        if (!securityPatchFresh()) n++;
         return n;''',
     '''        if (!automaticTimeEnabled()) n++;
         if (!automaticTimeZoneEnabled()) n++;
+        if (!securityPatchFresh()) n++;
         if (enabledThirdPartyAccessibilityServiceCount() > 0) n++;
         return n;''',
     "accessibility exposure in device trust score",
@@ -72,22 +74,18 @@ rep(
 # Add an actionable row to Device Security Audit. The row deliberately avoids asserting that an
 # enabled accessibility service is malicious; it asks the user to review only services they expect.
 rep(
-    '''        boolean autoZone = automaticTimeZoneEnabled();
-        content.addView(auditRow(
-                t("Automatic time zone", "منطقه زمانی خودکار"),
-                autoZone ? t("Enabled", "فعال")
-                        : t("Disabled — verify the device time zone", "غیرفعال است — منطقه زمانی دستگاه را بررسی کنید"),
-                autoZone,
-                () -> openSettings(Settings.ACTION_DATE_SETTINGS)));
+    '''        content.addView(auditRow(
+                t("Android security patch", "وصله امنیتی اندروید"),
+                patchDetail,
+                patchFresh,
+                () -> openSettings(Settings.ACTION_SECURITY_SETTINGS)));
 
         LinearLayout summary = card();''',
-    '''        boolean autoZone = automaticTimeZoneEnabled();
-        content.addView(auditRow(
-                t("Automatic time zone", "منطقه زمانی خودکار"),
-                autoZone ? t("Enabled", "فعال")
-                        : t("Disabled — verify the device time zone", "غیرفعال است — منطقه زمانی دستگاه را بررسی کنید"),
-                autoZone,
-                () -> openSettings(Settings.ACTION_DATE_SETTINGS)));
+    '''        content.addView(auditRow(
+                t("Android security patch", "وصله امنیتی اندروید"),
+                patchDetail,
+                patchFresh,
+                () -> openSettings(Settings.ACTION_SECURITY_SETTINGS)));
 
         int accessibilityCount = enabledThirdPartyAccessibilityServiceCount();
         content.addView(auditRow(
