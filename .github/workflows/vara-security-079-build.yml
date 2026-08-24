@@ -43,7 +43,7 @@ jobs:
           grep -q "versionName '0.7.9-alpha'" "$WORK/android/app/build.gradle"
           grep -q '0.7.9 ALPHA' "$MAIN"
           grep -q 'allowedThirdPartyUnknownSourceInstallerCount()' "$MAIN"
-          grep -q 'AppOpsManager.OPSTR_REQUEST_INSTALL_PACKAGES' "$MAIN"
+          grep -q 'android:request_install_packages' "$MAIN"
           grep -q 'android.Manifest.permission.REQUEST_INSTALL_PACKAGES' "$MAIN"
           grep -q 'Unknown-source installer exposure' "$MAIN"
           grep -q 'Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES' "$MAIN"
