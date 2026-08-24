@@ -45,7 +45,7 @@ jobs:
           grep -q 'activeThirdPartyDeviceAdminCount()' "$MAIN"
           grep -q 'getActiveAdmins()' "$MAIN"
           grep -q 'Device administrator exposure' "$MAIN"
-          grep -q 'Settings.ACTION_DEVICE_ADMIN_SETTINGS' "$MAIN"
+          grep -q 'Settings.ACTION_SECURITY_SETTINGS' "$MAIN"
           grep -q 'does not classify the app as malicious or block SafePay automatically' "$MAIN"
           grep -q 'onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error)' "$MAIN"
           grep -q 'request.isForMainFrame()' "$MAIN"
