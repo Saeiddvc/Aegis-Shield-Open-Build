@@ -18,40 +18,17 @@ def rep(old: str, new: str, label: str):
         raise SystemExit(f"patch failed [{label}]: expected 1 match, found {count}")
     s = s.replace(old, new, 1)
 
-# Protected destinations are payment-sensitive. Require a conventional HTTPS origin,
-# reject non-default ports and reject internationalized/punycode hostnames to reduce
-# homograph ambiguity in the in-app browser. This intentionally trades some IDN
-# compatibility for a narrower trust surface in SafePay/Secure Browser.
+# Protected destinations are payment-sensitive. Add the policy immediately before the
+# existing normalizeHttps success return so the patch remains compatible with earlier
+# hardening that may already have expanded the function body.
 rep(
-    '''    private String normalizeHttps(String raw) {
-        try {
-            String s = raw == null ? "" : raw.trim();
-            if (!s.startsWith("https://")) return null;
-            Uri u = Uri.parse(s);
-            String host = u.getHost();
-            if (host == null || host.length() < 4 || !host.contains(".")) return null;
-            if (u.getUserInfo() != null) return null;
-            if (host.matches("^[0-9a-fA-F:.]+$")) return null;
-            return u.toString();
-        } catch (Exception e) { return null; }
-    }''',
-    '''    private String normalizeHttps(String raw) {
-        try {
-            String s = raw == null ? "" : raw.trim();
-            if (!s.startsWith("https://")) return null;
-            Uri u = Uri.parse(s);
-            String host = u.getHost();
-            if (host == null || host.length() < 4 || !host.contains(".")) return null;
-            if (u.getUserInfo() != null) return null;
-            if (host.matches("^[0-9a-fA-F:.]+$")) return null;
-            int port = u.getPort();
+    '            return u.toString();',
+    '''            int port = u.getPort();
             if (port != -1 && port != 443) return null;
             String asciiHost = java.net.IDN.toASCII(host, java.net.IDN.USE_STD3_ASCII_RULES).toLowerCase(Locale.ROOT);
             if (!asciiHost.equals(host.toLowerCase(Locale.ROOT)) || asciiHost.contains("xn--")) return null;
             if (asciiHost.startsWith(".") || asciiHost.endsWith(".") || asciiHost.contains("..")) return null;
-            return u.toString();
-        } catch (Exception e) { return null; }
-    }''',
+            return u.toString();''',
     "protected destination policy",
 )
 
