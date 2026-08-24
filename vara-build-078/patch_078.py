@@ -94,7 +94,7 @@ rep(
                         : t(deviceAdminCount + " third-party app(s) have active device-administrator authority — verify each app and remove authority you no longer need",
                                 deviceAdminCount + " برنامه شخص ثالث دارای اختیار فعال مدیر دستگاه است — هر مورد را بررسی و دسترسی غیرضروری را حذف کنید"),
                 deviceAdminCount == 0,
-                () -> openSettings(Settings.ACTION_DEVICE_ADMIN_SETTINGS)));
+                () -> openSettings(Settings.ACTION_SECURITY_SETTINGS)));
 
         LinearLayout summary = card();''',
     "actionable device administrator audit row",
@@ -137,7 +137,7 @@ checks = [
     'DevicePolicyManager',
     'getActiveAdmins()',
     'Device administrator exposure',
-    'Settings.ACTION_DEVICE_ADMIN_SETTINGS',
+    'Settings.ACTION_SECURITY_SETTINGS',
     'does not classify the app as malicious or block SafePay automatically',
     '0.7.8 ALPHA',
 ]
