@@ -19,34 +19,10 @@ def rep(old: str, new: str, label: str):
     s = s.replace(old, new, 1)
 
 # Fail closed on main-frame WebView transport failures so a protected session
-# cannot remain on a partially loaded or stale sensitive page.
-rep(
-    '''            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.cancel();
-                String host = "unknown";
-                try {
-                    Uri failed = error == null ? null : Uri.parse(error.getUrl());
-                    if (failed != null && failed.getHost() != null) host = failed.getHost();
-                } catch (Exception ignored) {}
-                String event = t("Secure Browser blocked a TLS certificate error for " + host, "مرورگر امن خطای گواهی TLS برای " + host + " را مسدود کرد");
-                prefs.edit().putString("last_activity", event)
-                        .putString("last_activity_time", DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date())).apply();
-                Toast.makeText(MainActivity.this, t("TLS certificate error — connection blocked", "خطای گواهی TLS — اتصال مسدود شد"), Toast.LENGTH_LONG).show();
-            }
-            @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {''',
-    '''            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.cancel();
-                String host = "unknown";
-                try {
-                    Uri failed = error == null ? null : Uri.parse(error.getUrl());
-                    if (failed != null && failed.getHost() != null) host = failed.getHost();
-                } catch (Exception ignored) {}
-                String event = t("Secure Browser blocked a TLS certificate error for " + host, "مرورگر امن خطای گواهی TLS برای " + host + " را مسدود کرد");
-                prefs.edit().putString("last_activity", event)
-                        .putString("last_activity_time", DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date())).apply();
-                Toast.makeText(MainActivity.this, t("TLS certificate error — connection blocked", "خطای گواهی TLS — اتصال مسدود شد"), Toast.LENGTH_LONG).show();
-            }
-            @Override public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
+# cannot remain on a partially loaded or stale sensitive page. Insert immediately
+# before the existing renderer-failure handler instead of depending on the exact
+# TLS-handler body, which changed in earlier hardening patches.
+network_handler = '''            @Override public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
                 if (request == null || !request.isForMainFrame()) return;
                 try { if (view != null) view.stopLoading(); } catch (Exception ignored) {}
                 String host = "unknown";
@@ -63,9 +39,13 @@ rep(
                         Toast.LENGTH_LONG).show();
                 renderHome();
             }
-            @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {''',
-    "main-frame network failure fail-closed handling",
-)
+'''
+renderer_anchor = '            @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {'
+if 'onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error)' not in s:
+    count = s.count(renderer_anchor)
+    if count != 1:
+        raise SystemExit(f"patch failed [renderer anchor]: expected 1 match, found {count}")
+    s = s.replace(renderer_anchor, network_handler + renderer_anchor, 1)
 
 # Keep compatibility/disclosure copy aligned with the new runtime behavior.
 rep(
