@@ -18,81 +18,49 @@ def rep(old: str, new: str, label: str):
         raise SystemExit(f"patch failed [{label}]: expected 1 match, found {count}")
     s = s.replace(old, new, 1)
 
-# Security-patch freshness is a device hygiene signal. Treat devices with an unknown,
-# unparsable, or older-than-180-day patch level as needing review, not as malware proof.
+# Security-patch freshness already exists in the validated 0.6.4 chain.
+# 0.7.6 makes that signal easier to interpret and surfaces it in Device Compatibility
+# without duplicating helpers or changing the 180-day posture threshold.
 rep(
-    '''    private int enabledThirdPartyInputMethodCount() {''',
-    '''    private int securityPatchAgeDays() {
-        try {
-            String patch = android.os.Build.VERSION.SECURITY_PATCH;
-            if (patch == null || patch.trim().isEmpty()) return Integer.MAX_VALUE;
-            java.time.LocalDate patchDate = java.time.LocalDate.parse(patch.trim());
-            long days = java.time.temporal.ChronoUnit.DAYS.between(patchDate, java.time.LocalDate.now());
-            if (days < 0) return 0;
-            return days > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) days;
-        } catch (Exception ignored) {
-            return Integer.MAX_VALUE;
+    '''        long patchAge = securityPatchAgeDays();
+        boolean patchFresh = securityPatchFresh();
+        String freshnessPatchLevel = android.os.Build.VERSION.SECURITY_PATCH;
+        String patchDetail;
+        if (freshnessPatchLevel == null || freshnessPatchLevel.trim().isEmpty() || patchAge == Long.MAX_VALUE) {
+            patchDetail = t("Security patch level unavailable — review system updates",
+                    "سطح وصله امنیتی در دسترس نیست — به‌روزرسانی‌های سیستم را بررسی کنید");
+        } else if (patchFresh) {
+            patchDetail = t("Patch " + freshnessPatchLevel + " — " + patchAge + " days old",
+                    "وصله " + freshnessPatchLevel + " — مربوط به " + patchAge + " روز قبل");
+        } else {
+            patchDetail = t("Patch " + freshnessPatchLevel + " — older than 180 days; review system updates",
+                    "وصله " + freshnessPatchLevel + " — قدیمی‌تر از ۱۸۰ روز؛ به‌روزرسانی سیستم را بررسی کنید");
         }
-    }
-
-    private boolean securityPatchCurrent() {
-        return securityPatchAgeDays() <= 180;
-    }
-
-    private int enabledThirdPartyInputMethodCount() {''',
-    "security patch freshness helpers",
-)
-
-rep(
-    '''        if (enabledThirdPartyNotificationListenerCount() > 0) n++;
-        if (enabledThirdPartyOverlayCount() > 0) n++;
-        if (enabledThirdPartyInputMethodCount() > 0) n++;
-        return n;''',
-    '''        if (enabledThirdPartyNotificationListenerCount() > 0) n++;
-        if (enabledThirdPartyOverlayCount() > 0) n++;
-        if (enabledThirdPartyInputMethodCount() > 0) n++;
-        if (!securityPatchCurrent()) n++;
-        return n;''',
-    "security patch freshness in device trust score",
-)
-
-rep(
-    '''        int inputMethodCount = enabledThirdPartyInputMethodCount();
-        content.addView(auditRow(
-                t("Third-party keyboard exposure", "دسترسی صفحه‌کلید شخص ثالث"),
-                inputMethodCount == 0
-                        ? t("No enabled third-party input method detected", "روش ورودی شخص ثالث فعالی شناسایی نشد")
-                        : t(inputMethodCount + " third-party input method app(s) are enabled — verify every keyboard before entering passwords, OTPs or payment data",
-                                inputMethodCount + " برنامه روش ورودی شخص ثالث فعال است — پیش از ورود رمز، رمز یک‌بارمصرف یا اطلاعات پرداخت همه موارد را بررسی کنید"),
-                inputMethodCount == 0,
-                () -> openSettings(Settings.ACTION_INPUT_METHOD_SETTINGS)));
-
-        LinearLayout summary = card();''',
-    '''        int inputMethodCount = enabledThirdPartyInputMethodCount();
-        content.addView(auditRow(
-                t("Third-party keyboard exposure", "دسترسی صفحه‌کلید شخص ثالث"),
-                inputMethodCount == 0
-                        ? t("No enabled third-party input method detected", "روش ورودی شخص ثالث فعالی شناسایی نشد")
-                        : t(inputMethodCount + " third-party input method app(s) are enabled — verify every keyboard before entering passwords, OTPs or payment data",
-                                inputMethodCount + " برنامه روش ورودی شخص ثالث فعال است — پیش از ورود رمز، رمز یک‌بارمصرف یا اطلاعات پرداخت همه موارد را بررسی کنید"),
-                inputMethodCount == 0,
-                () -> openSettings(Settings.ACTION_INPUT_METHOD_SETTINGS)));
-
-        int patchAge = securityPatchAgeDays();
-        boolean patchCurrent = securityPatchCurrent();
-        String patchLevel = android.os.Build.VERSION.SECURITY_PATCH == null || android.os.Build.VERSION.SECURITY_PATCH.trim().isEmpty()
-                ? t("Unknown", "نامشخص") : android.os.Build.VERSION.SECURITY_PATCH;
         content.addView(auditRow(
                 t("Android security patch", "وصله امنیتی اندروید"),
-                patchCurrent
-                        ? t("Patch level " + patchLevel + " • " + patchAge + " day(s) old", "سطح وصله " + patchLevel + " • " + patchAge + " روز از آن گذشته است")
-                        : t("Patch level " + patchLevel + " is older than 180 days or cannot be verified — check for a system update",
-                                "سطح وصله " + patchLevel + " بیش از ۱۸۰ روز قدیمی است یا قابل تأیید نیست — به‌روزرسانی سیستم را بررسی کنید"),
-                patchCurrent,
-                () -> openSettings(Settings.ACTION_SYSTEM_UPDATE_SETTINGS)));
-
-        LinearLayout summary = card();''',
-    "actionable Android security patch audit row",
+                patchDetail,
+                patchFresh,
+                () -> openSettings(Settings.ACTION_SECURITY_SETTINGS)));''',
+    '''        long patchAge = securityPatchAgeDays();
+        boolean patchFresh = securityPatchFresh();
+        String freshnessPatchLevel = android.os.Build.VERSION.SECURITY_PATCH;
+        String patchDetail;
+        if (freshnessPatchLevel == null || freshnessPatchLevel.trim().isEmpty() || patchAge == Long.MAX_VALUE) {
+            patchDetail = t("Patch level unavailable — review Android security and system updates",
+                    "سطح وصله در دسترس نیست — امنیت و به‌روزرسانی سیستم اندروید را بررسی کنید");
+        } else if (patchFresh) {
+            patchDetail = t("Patch " + freshnessPatchLevel + " • " + patchAge + " day(s) old • within VARA's 180-day review window",
+                    "وصله " + freshnessPatchLevel + " • مربوط به " + patchAge + " روز قبل • در محدوده بررسی ۱۸۰ روزه VARA");
+        } else {
+            patchDetail = t("Patch " + freshnessPatchLevel + " • older than 180 days — check for a manufacturer or carrier system update",
+                    "وصله " + freshnessPatchLevel + " • قدیمی‌تر از ۱۸۰ روز — به‌روزرسانی سازنده یا اپراتور را بررسی کنید");
+        }
+        content.addView(auditRow(
+                t("Android security patch", "وصله امنیتی اندروید"),
+                patchDetail,
+                patchFresh,
+                () -> openSettings(Settings.ACTION_SECURITY_SETTINGS)));''',
+    "security patch audit interpretation",
 )
 
 rep(
@@ -100,18 +68,18 @@ rep(
     '''        content.addView(keyboards);
 
         LinearLayout securityPatch = card();
-        int patchAgeDays = securityPatchAgeDays();
-        boolean currentPatch = securityPatchCurrent();
+        long patchAgeDays = securityPatchAgeDays();
+        boolean currentPatch = securityPatchFresh();
         String devicePatch = android.os.Build.VERSION.SECURITY_PATCH == null || android.os.Build.VERSION.SECURITY_PATCH.trim().isEmpty()
                 ? t("Unknown", "نامشخص") : android.os.Build.VERSION.SECURITY_PATCH;
         securityPatch.addView(tv(t("Android security patch", "وصله امنیتی اندروید"), 16, NAVY, true));
         securityPatch.addView(tv(currentPatch
-                ? t("Patch level " + devicePatch + " • " + patchAgeDays + " day(s) old", "سطح وصله " + devicePatch + " • " + patchAgeDays + " روز از آن گذشته است")
-                : t("Patch level " + devicePatch + " needs review because it is older than 180 days or unavailable",
-                        "سطح وصله " + devicePatch + " نیاز به بررسی دارد چون بیش از ۱۸۰ روز قدیمی است یا در دسترس نیست"),
+                ? t("Patch " + devicePatch + " • " + patchAgeDays + " day(s) old", "وصله " + devicePatch + " • مربوط به " + patchAgeDays + " روز قبل")
+                : t("Patch " + devicePatch + " needs review because it is older than 180 days or unavailable",
+                        "وصله " + devicePatch + " نیاز به بررسی دارد چون بیش از ۱۸۰ روز قدیمی است یا در دسترس نیست"),
                 13, currentPatch ? GOOD : WARN, !currentPatch));
-        securityPatch.addView(tv(t("VARA uses patch age as a device-hygiene signal only. Update availability depends on the device manufacturer and carrier.",
-                "VARA سن وصله را فقط به‌عنوان شاخص بهداشت امنیتی دستگاه در نظر می‌گیرد. دسترسی به به‌روزرسانی به سازنده دستگاه و اپراتور بستگی دارد."), 12, MUTED, false));
+        securityPatch.addView(tv(t("Patch age is a device-hygiene signal only; it is not evidence of malware or compromise. Update availability depends on the manufacturer and carrier.",
+                "سن وصله فقط یک شاخص بهداشت امنیتی دستگاه است و نشانه بدافزار یا نفوذ نیست. دسترسی به به‌روزرسانی به سازنده دستگاه و اپراتور بستگی دارد."), 12, MUTED, false));
         content.addView(securityPatch);''',
     "compatibility security patch card",
 )
@@ -132,16 +100,15 @@ gradle.write_text(g, encoding="utf-8")
 
 checks = [
     'securityPatchAgeDays()',
-    'securityPatchCurrent()',
+    'securityPatchFresh()',
     'android.os.Build.VERSION.SECURITY_PATCH',
-    'java.time.temporal.ChronoUnit.DAYS.between',
     'Android security patch',
-    'Settings.ACTION_SYSTEM_UPDATE_SETTINGS',
-    'older than 180 days',
+    "VARA's 180-day review window",
+    'Patch age is a device-hygiene signal only',
     '0.7.6 ALPHA',
 ]
 for marker in checks:
     if marker not in s:
         raise SystemExit(f"missing expected marker after patch: {marker}")
 
-print("VARA Security 0.7.6 Android security-patch freshness audit patch applied")
+print("VARA Security 0.7.6 security-patch freshness UX patch applied")
