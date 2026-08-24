@@ -53,7 +53,7 @@ rep(
                 }
                 if (!requestsInstallPackages) continue;
                 int mode = appOps.checkOpNoThrow(
-                        android.app.AppOpsManager.OPSTR_REQUEST_INSTALL_PACKAGES,
+                        "android:request_install_packages",
                         app.uid,
                         pkg);
                 if (mode == android.app.AppOpsManager.MODE_ALLOWED) count++;
@@ -147,7 +147,7 @@ gradle.write_text(g, encoding="utf-8")
 
 checks = [
     'allowedThirdPartyUnknownSourceInstallerCount()',
-    'AppOpsManager.OPSTR_REQUEST_INSTALL_PACKAGES',
+    'android:request_install_packages',
     'android.Manifest.permission.REQUEST_INSTALL_PACKAGES',
     'Unknown-source installer exposure',
     'Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES',
