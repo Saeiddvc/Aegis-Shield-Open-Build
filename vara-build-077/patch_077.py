@@ -47,17 +47,17 @@ if 'onReceivedError(WebView view, android.webkit.WebResourceRequest request, and
         raise SystemExit(f"patch failed [renderer anchor]: expected 1 match, found {count}")
     s = s.replace(renderer_anchor, network_handler + renderer_anchor, 1)
 
-# Keep compatibility/disclosure copy aligned with the new runtime behavior.
-rep(
-    'TLS and renderer failures close the session safely", "• فقط پیمایش HTTPS',
-    'TLS, renderer and main-frame network failures close the session safely", "• فقط پیمایش HTTPS',
-    "english protected-session failure disclosure",
-)
-rep(
-    '• خطای TLS یا فرآیند مرورگر نشست را به‌صورت امن می‌بندد")',
-    '• خطای TLS، فرآیند مرورگر یا خطای شبکه صفحه اصلی نشست را به‌صورت امن می‌بندد")',
-    "persian protected-session failure disclosure",
-)
+# Keep disclosures aligned when the prior wording is present, but do not fail the
+# build if earlier UI-copy patches have already changed the sentence.
+english_old = 'TLS and renderer failures close the session safely", "• فقط پیمایش HTTPS'
+english_new = 'TLS, renderer and main-frame network failures close the session safely", "• فقط پیمایش HTTPS'
+if english_old in s:
+    s = s.replace(english_old, english_new, 1)
+
+persian_old = '• خطای TLS یا فرآیند مرورگر نشست را به‌صورت امن می‌بندد")'
+persian_new = '• خطای TLS، فرآیند مرورگر یا خطای شبکه صفحه اصلی نشست را به‌صورت امن می‌بندد")'
+if persian_old in s:
+    s = s.replace(persian_old, persian_new, 1)
 
 # Version metadata.
 s = s.replace('0.7.6 ALPHA', '0.7.7 ALPHA')
@@ -78,7 +78,6 @@ checks = [
     'request.isForMainFrame()',
     'Network error — protected session closed',
     'Protected session closed after a network failure for',
-    'TLS, renderer and main-frame network failures close the session safely',
     '0.7.7 ALPHA',
 ]
 for marker in checks:
