@@ -126,7 +126,10 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks "$KEYSTORE" --ks-key-alias vara_alpha --ks-pass pass:'VARAAlphaDev2026!' --key-pass pass:'VARAAlphaDev2026!' --out "$FINAL" "$ALIGNED"
           unzip -t "$FINAL" >/dev/null
-          unzip -l "$FINAL" | grep -q 'res/xml/network_security_config.xml'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump resources "$FINAL" > "$ROOT/resources.txt"
+          grep -q 'network_security_config' "$ROOT/resources.txt"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$FINAL" AndroidManifest.xml > "$ROOT/manifest-tree.txt"
+          grep -q 'networkSecurityConfig' "$ROOT/manifest-tree.txt"
           unzip -p "$FINAL" classes.dex | strings > "$ROOT/dex-strings.txt"
           if grep -q 'EICAR-STANDARD-ANTIVIRUS-TEST-FILE' "$ROOT/dex-strings.txt"; then echo 'Forbidden AV test payload found' >&2; exit 1; fi
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$FINAL" | tee "$OUT/signature.txt"
