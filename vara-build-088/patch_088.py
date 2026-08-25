@@ -157,7 +157,7 @@ checks = [
     'mediumRiskCount()',
     'lowRiskCount()',
     'Scan completed • posture ',
-    'findings are recommendations and do not block scanning',
+    'Findings are recommendations and do not block scanning',
     '0.8.8 ALPHA',
 ]
 for marker in checks:
