@@ -25,7 +25,7 @@ integrity_helpers = r'''
     private String deviceIntegrityIndicators() {
         java.util.ArrayList<String> hits = new java.util.ArrayList<>();
         try {
-            String tags = Build.TAGS;
+            String tags = android.os.Build.TAGS;
             if (tags != null && tags.contains("test-keys")) hits.add("build:test-keys");
         } catch (Exception ignored) {}
 
@@ -143,6 +143,7 @@ checks = [
     '/data/adb/magisk',
     'Device integrity indicators',
     'heuristic signal, not proof',
+    'android.os.Build.TAGS',
     '0.8.7 ALPHA',
 ]
 for marker in checks:
