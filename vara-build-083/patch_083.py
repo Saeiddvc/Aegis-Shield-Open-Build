@@ -64,8 +64,21 @@ lifecycle_helpers = r'''
         super.onPause();
     }
 
-    @Override
-    protected void onResume() {
+'''
+rep(
+    '    private String t(String en, String faText) { return fa ? faText : en; }',
+    lifecycle_helpers + '    private String t(String en, String faText) { return fa ? faText : en; }',
+    "protected session lifecycle helpers",
+)
+
+# Reuse the existing onResume() added by 0.5.1 instead of defining a second
+# lifecycle override. Background-close handling runs first, then normal
+# remediation-screen refresh behavior continues unchanged.
+rep(
+    '''    protected void onResume() {
+        super.onResume();
+        if (root == null || currentPage == null) return;''',
+    '''    protected void onResume() {
         super.onResume();
         if (returnHomeAfterProtectedPause) {
             returnHomeAfterProtectedPause = false;
@@ -73,14 +86,10 @@ lifecycle_helpers = r'''
             Toast.makeText(this,
                     t("Protected session was closed for safety", "نشست محافظت‌شده برای حفظ ایمنی بسته شد"),
                     Toast.LENGTH_LONG).show();
+            return;
         }
-    }
-
-'''
-rep(
-    '    private String t(String en, String faText) { return fa ? faText : en; }',
-    lifecycle_helpers + '    private String t(String en, String faText) { return fa ? faText : en; }',
-    "protected session lifecycle helpers",
+        if (root == null || currentPage == null) return;''',
+    "merge protected-session resume handling",
 )
 
 # Register the WebView before Safe Browsing initialization. The callback checks
@@ -149,5 +158,8 @@ checks = [
 for marker in checks:
     if marker not in s:
         raise SystemExit(f"missing expected marker after patch: {marker}")
+
+if s.count('protected void onResume()') != 1:
+    raise SystemExit(f"lifecycle validation failed: expected exactly one onResume override, found {s.count('protected void onResume()')}")
 
 print("VARA Security 0.8.3 protected-session background fail-closed patch applied")
