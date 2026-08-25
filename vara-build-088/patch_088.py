@@ -11,34 +11,19 @@ gradle = root / "app/build.gradle"
 manifest = root / "app/src/main/AndroidManifest.xml"
 s = java.read_text(encoding="utf-8")
 
-
-def replace_once(old: str, new: str, label: str):
-    global s
-    count = s.count(old)
-    if count != 1:
-        raise SystemExit(f"patch failed [{label}]: expected 1 match, found {count}")
-    s = s.replace(old, new, 1)
-
 # 0.8.8 fixes the misleading scan/posture UX observed on a real Samsung device.
+# Existing high/medium/low app-risk counters are reused; do not redefine them.
 # Low-confidence app review findings must not drive the global score to zero, and
 # a scan must always complete independently of remediation or SafePay prerequisites.
-replace_once(
-    '        int flaggedAppCount() { return findings.size(); }',
-    '''        int flaggedAppCount() { return findings.size(); }
-
-        int mediumRiskCount() {
-            int count = 0;
-            for (AppRiskItem item : findings) if (item.reviewScore >= 25 && item.reviewScore < 60) count++;
-            return count;
-        }
-
-        int lowRiskCount() {
-            int count = 0;
-            for (AppRiskItem item : findings) if (item.reviewScore > 0 && item.reviewScore < 25) count++;
-            return count;
-        }''',
-    "risk category counters",
-)
+required_existing = [
+    'int mediumRiskCount()',
+    'int lowRiskCount()',
+    'int highRiskCount()',
+    'int flaggedAppCount()',
+]
+for marker in required_existing:
+    if marker not in s:
+        raise SystemExit(f"missing prerequisite from validated source: {marker}")
 
 score_pattern = re.compile(r'''    private int securityPostureScore\(AppRiskSummary risk\) \{.*?\n    \}\n''', re.S)
 score_replacement = '''    private int remediationActionCount(AppRiskSummary risk) {
@@ -154,8 +139,8 @@ mipmap.mkdir(parents=True, exist_ok=True)
 
 checks = [
     'remediationActionCount(AppRiskSummary risk)',
-    'mediumRiskCount()',
-    'lowRiskCount()',
+    'int mediumRiskCount()',
+    'int lowRiskCount()',
     'Scan completed • posture ',
     'Findings are recommendations and do not block scanning',
     '0.8.8 ALPHA',
@@ -163,6 +148,8 @@ checks = [
 for marker in checks:
     if marker not in s:
         raise SystemExit(f"missing expected marker after patch: {marker}")
+if s.count('int mediumRiskCount()') != 1 or s.count('int lowRiskCount()') != 1:
+    raise SystemExit('risk category methods must be defined exactly once')
 if 'android:icon="@mipmap/ic_vara_launcher"' not in m:
     raise SystemExit("launcher icon not wired in manifest")
 print("VARA Security 0.8.8 scan UX, bounded posture score and branded launcher icon patch applied")
