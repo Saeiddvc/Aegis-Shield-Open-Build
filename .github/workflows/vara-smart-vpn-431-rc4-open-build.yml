@@ -223,7 +223,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
-          target: google_apis
+          target: default
           arch: x86_64
           profile: pixel_6
           cores: 2
@@ -255,10 +255,6 @@ jobs:
               exit "$TEST_RC"
             fi
 
-            # The emulator emits framework ClassNotFoundException noise while booting.
-            # Clear boot logs before the product cold-start and scope generic class
-            # failures to the Vara app process so system BinderCacheManager warnings
-            # cannot create false negatives.
             adb logcat -c || true
             bash scripts/android16_cold_launch_test.sh
             sleep 3
@@ -277,8 +273,6 @@ jobs:
               exit 1
             fi
 
-            # Keep a global guard for foreground-service failures, but only when
-            # the record explicitly identifies this package/service.
             if grep -E 'ForegroundServiceDidNotStartInTimeException|android\.app\.RemoteServiceException' /tmp/vara-rc4-logcat.txt | grep -E 'com\.saeiddvc\.vpn|CoreVpnService'; then
               echo "Vara foreground-service failure detected during Android 16 smoke test."
               exit 1
