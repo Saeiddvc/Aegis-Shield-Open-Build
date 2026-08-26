@@ -233,15 +233,16 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -no-audio -gpu swiftshader_indirect -no-boot-anim
           script: |
-            bash -lc 'set -uo pipefail
-            cd "$GITHUB_WORKSPACE/private-source/work/$(basename "$PROJECT_DIR")"
+            set -u
+            cd "$PROJECT_DIR"
             mkdir -p /tmp/android16-test-results
             set +e
             ./gradlew --no-daemon --stacktrace connectedPlaystoreDebugAndroidTest \
               -Pandroid.testInstrumentationRunnerArguments.class=com.v2ray.ang.VaraRuntimeSmokeTest \
-              2>&1 | tee /tmp/connected-android16-test.log
-            TEST_RC=${PIPESTATUS[0]}
+              > /tmp/connected-android16-test.log 2>&1
+            TEST_RC=$?
             set -e
+            cat /tmp/connected-android16-test.log
             adb logcat -d -v threadtime > /tmp/vara-rc4-logcat.txt || true
             adb shell dumpsys activity services com.vara.vpn > /tmp/android16-services.txt || true
             adb shell dumpsys activity processes com.vara.vpn > /tmp/android16-processes.txt || true
@@ -259,7 +260,7 @@ jobs:
             ! grep -E "FATAL EXCEPTION|NoClassDefFoundError|ClassNotFoundException|ForegroundServiceDidNotStartInTimeException" /tmp/vara-rc4-logcat.txt
             adb shell uiautomator dump /sdcard/vara-ui.xml >/dev/null
             adb pull /sdcard/vara-ui.xml /tmp/vara-ui.xml >/dev/null
-            grep -q "Vara" /tmp/vara-ui.xml'
+            grep -q "Vara" /tmp/vara-ui.xml
 
       - name: Prepare RC4 deliverable
         if: success()
