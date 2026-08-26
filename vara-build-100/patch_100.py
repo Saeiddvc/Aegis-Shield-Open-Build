@@ -25,6 +25,7 @@ for marker in required:
 # 0.10.0 milestone: make SafePay readiness immediately understandable on Home,
 # in the drawer and on Compatibility. This changes presentation only; the actual
 # protected-session preflight remains the same fail-closed contract.
+# CI trigger revision: workflow is now registered on the branch before this patch changes.
 anchor = '    private String protectedSessionReadinessText() {'
 if s.count(anchor) != 1:
     raise SystemExit(f"patch failed [readiness helper anchor]: found {s.count(anchor)}")
@@ -53,12 +54,9 @@ home_new = '''        readyCard.addView(tv(protectedSessionCompactStatus(), 19, 
         readyCard.addView(tv(protectedSessionReadinessText(), 12, MUTED, false));'''
 s = s.replace(home_old, home_new, 1)
 
-# Rename the Home/Compatibility heading from an implementation-centric phrase to the
-# user-facing product name. Replace both English and Persian labels consistently.
 s = s.replace('t("Protected session readiness", "آمادگی نشست محافظت‌شده")',
               't("SafePay readiness", "آمادگی SafePay")')
 
-# Drawer: a compact state comes first; the specific unmet requirement remains directly below it.
 drawer_old = '        head.addView(tv(t("SafePay: ", "SafePay: ") + protectedSessionReadinessText(), 11, Color.rgb(196,221,225), false));'
 if s.count(drawer_old) != 1:
     raise SystemExit(f"patch failed [drawer SafePay status]: found {s.count(drawer_old)}")
@@ -68,7 +66,6 @@ drawer_new = '''        head.addView(tv(t("SafePay: ", "SafePay: ") + protectedS
         }'''
 s = s.replace(drawer_old, drawer_new, 1)
 
-# Compatibility: make the number of launch blockers explicit while keeping each row actionable.
 compat_anchor = '        protectedReady.addView(tv(t("Safe Browsing initialization is also verified at session start and fails closed if unavailable.", "راه‌اندازی Safe Browsing نیز هنگام شروع نشست بررسی می‌شود و در صورت عدم دسترسی، نشست به‌صورت امن متوقف می‌شود."), 12, MUTED, false));'
 if s.count(compat_anchor) != 1:
     raise SystemExit(f"patch failed [compatibility blocker summary]: found {s.count(compat_anchor)}")
@@ -79,7 +76,6 @@ compat_insert = '''        protectedReady.addView(tv(protectedSessionBlockingCou
 '''
 s = s.replace(compat_anchor, compat_insert + compat_anchor, 1)
 
-# Version metadata.
 s = s.replace('0.9.9 ALPHA', '0.10.0 ALPHA')
 s = s.replace('0.9.9 Alpha • versionCode 909', '0.10.0 Alpha • versionCode 1000')
 s = s.replace('0.9.9 Alpha', '0.10.0 Alpha')
