@@ -1,6 +1,11 @@
 name: VARA Security 0.10.0 Build
 
 on:
+  push:
+    branches: [ vara-security-0.10.0-build ]
+    paths:
+      - '.github/workflows/vara-security-100-build.yml'
+      - 'vara-build-100/**'
   pull_request:
     branches: [ main ]
     paths:
