@@ -21,7 +21,6 @@ for marker in required:
     if marker not in s:
         raise SystemExit(f"missing validated 0.9.1 prerequisite: {marker}")
 
-# 0.9.2: keep a small local scan history so repeated scans are useful beyond one baseline delta.
 helpers = r'''
     private java.util.List<String> scanHistoryEntries() {
         String raw = getSharedPreferences("vara_security_state", MODE_PRIVATE).getString("scan_history", "");
@@ -104,7 +103,6 @@ if s.count(anchor) != 1:
     raise SystemExit(f"patch failed [scan history helpers]: found {s.count(anchor)}")
 s = s.replace(anchor, helpers + anchor, 1)
 
-# Add a scan-history action to the Home protection-scan card.
 home_anchor = '''        scanNow.setOnClickListener(v -> runQuickScan());
         content.addView(scanStatus);'''
 if s.count(home_anchor) != 1:
@@ -118,14 +116,13 @@ home_new = '''        scanNow.setOnClickListener(v -> runQuickScan());
         content.addView(scanStatus);'''
 s = s.replace(home_anchor, home_new, 1)
 
-# Persist the compact history entry after a successful scan snapshot is saved.
 scan_anchor = '        saveScanSnapshot(score, issues, risk.flaggedAppCount());'
 if s.count(scan_anchor) != 1:
     raise SystemExit(f"patch failed [append scan history]: found {s.count(scan_anchor)}")
 s = s.replace(scan_anchor, scan_anchor + '\n        appendScanHistory(lastCompletedScanAt(), score, issues, risk.flaggedAppCount());', 1)
 
-# Scan Results offers direct history navigation.
-results_anchor = '''        Button home = secondary(t("Back to Home", "بازگشت به خانه"));'''
+# Scan Results currently ends with the stable 0.8.9 "Done" control. Insert History before it.
+results_anchor = '''        Button done = secondary(t("Done", "بازگشت به خانه"));'''
 if s.count(results_anchor) != 1:
     raise SystemExit(f"patch failed [scan results history button]: found {s.count(results_anchor)}")
 results_new = '''        Button history = secondary(t("View scan history", "مشاهده تاریخچه اسکن"));
@@ -133,16 +130,14 @@ results_new = '''        Button history = secondary(t("View scan history", "مش
         hp.setMargins(0, dp(8), 0, 0); content.addView(history, hp);
         history.setOnClickListener(v -> renderScanHistory());
 
-        Button home = secondary(t("Back to Home", "بازگشت به خانه"));'''
+        Button done = secondary(t("Done", "بازگشت به خانه"));'''
 s = s.replace(results_anchor, results_new, 1)
 
-# Scan history is a first-level destination; Back returns Home.
 nav_anchor = '        if ("scanresult".equals(currentPage)) {'
 if s.count(nav_anchor) != 1:
     raise SystemExit(f"patch failed [scan history navigation]: found {s.count(nav_anchor)}")
 s = s.replace(nav_anchor, '        if ("scanhistory".equals(currentPage)) {\n            renderHome();\n            return;\n        }\n' + nav_anchor, 1)
 
-# Version metadata.
 s = s.replace('0.9.1 ALPHA', '0.9.2 ALPHA')
 s = s.replace('0.9.1 Alpha • versionCode 901', '0.9.2 Alpha • versionCode 902')
 s = s.replace('0.9.1 Alpha', '0.9.2 Alpha')
