@@ -1,10 +1,10 @@
 {
   "conclusion": "failure",
-  "head_sha": "8d701658d362f9170ae0ea6a325ebe87b6b6b1d7",
-  "run_id": 32963480541,
-  "run_number": 11,
-  "run_url": "https://github.com/Saeiddvc/Aegis-Shield-Open-Build/actions/runs/32963480541",
+  "head_sha": "92a61b2ce123d17d06f76b9902c762d820f55b1c",
+  "run_id": 32993400364,
+  "run_number": 12,
+  "run_url": "https://github.com/Saeiddvc/Aegis-Shield-Open-Build/actions/runs/32993400364",
   "status": "completed",
-  "updated_at": "2026-08-26T11:42:30Z",
+  "updated_at": "2026-08-26T17:31:17Z",
   "workflow": "Vara Smart VPN 4.3.1 RC4 Open Build"
 }
