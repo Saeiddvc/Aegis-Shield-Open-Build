@@ -71,21 +71,27 @@ if s.count(old_detail) != 1:
 s = s.replace(old_detail,
               'Fix the blocking prerequisite before SafePay. Device Scan still works independently and is never blocked by these SafePay requirements.', 1)
 
-# Add a direct remediation button to Compatibility immediately after the prerequisite breakdown.
-compat_anchor = '''        protectedReady.addView(tv((!adbEnabled() ? "✓ " : "• ") + t("USB debugging disabled", "اشکال‌زدایی USB غیرفعال"), 12, !adbEnabled() ? GOOD : WARN, true));
-        content.addView(protectedReady);'''
-if s.count(compat_anchor) != 1:
-    raise SystemExit(f"patch failed [compatibility direct remediation]: found {s.count(compat_anchor)}")
-compat_new = '''        protectedReady.addView(tv((!adbEnabled() ? "✓ " : "• ") + t("USB debugging disabled", "اشکال‌زدایی USB غیرفعال"), 12, !adbEnabled() ? GOOD : WARN, true));
-        if (!protectedSessionReady) {
+# Add a direct remediation button to Compatibility after the explicit prerequisite rows.
+# Later releases may insert extra compatibility disclosure between the USB row and content.addView,
+# so anchor on the USB row and then locate the next content.addView(protectedReady) rather than
+# requiring exact adjacency.
+usb_anchor = 'protectedReady.addView(tv((!adbEnabled() ? "✓ " : "• ") + t("USB debugging disabled", "اشکال‌زدایی USB غیرفعال"), 12, !adbEnabled() ? GOOD : WARN, true));'
+usb_pos = s.find(usb_anchor)
+if usb_pos < 0:
+    raise SystemExit("patch failed [compatibility direct remediation]: USB prerequisite row not found")
+content_anchor = '        content.addView(protectedReady);'
+content_pos = s.find(content_anchor, usb_pos)
+if content_pos < 0:
+    raise SystemExit("patch failed [compatibility direct remediation]: protectedReady content insertion point not found")
+compat_insert = '''        if (!protectedSessionReady) {
             Button fixRequirement = secondary(protectedSessionRequirementActionText());
             LinearLayout.LayoutParams fixParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
             fixParams.setMargins(0, dp(10), 0, 0);
             protectedReady.addView(fixRequirement, fixParams);
             fixRequirement.setOnClickListener(v -> fixProtectedSessionRequirement());
         }
-        content.addView(protectedReady);'''
-s = s.replace(compat_anchor, compat_new, 1)
+'''
+s = s[:content_pos] + compat_insert + s[content_pos:]
 
 # Version metadata.
 s = s.replace('0.9.6 ALPHA', '0.9.7 ALPHA')
