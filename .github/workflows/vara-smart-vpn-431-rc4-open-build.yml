@@ -85,9 +85,6 @@ jobs:
           cd "$PROJECT_DIR"
           AEGIS_SOURCE_ROOT="$PWD" bash ci/apply-aegis-430.sh
 
-          # Theme.kt retains these stable resource identifiers. Supply open-source
-          # Roboto files under those names; runtime validation checks the Android
-          # resource table rather than relying on a physical ZIP path.
           mkdir -p app/src/main/res/font
           REGULAR_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Regular' | head -n1)"
           BOLD_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Bold' | head -n1)"
@@ -225,13 +222,9 @@ jobs:
           api-level: 36
           target: default
           arch: x86_64
-          profile: pixel_6
           cores: 2
-          ram-size: 3072M
-          disk-size: 3072M
           emulator-boot-timeout: 900
           disable-animations: true
-          emulator-options: -no-snapshot -no-window -no-audio -gpu swiftshader_indirect -no-boot-anim
           script: |
             set -u
             cd "$PROJECT_DIR"
