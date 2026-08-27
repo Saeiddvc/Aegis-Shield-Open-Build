@@ -138,15 +138,26 @@ jobs:
           git worktree add "$PUB" origin/vara-security-releases
           cd "$PUB"
           git checkout -B vara-security-releases origin/vara-security-releases
-          mkdir -p releases
-          cp "$FINAL" releases/VARA-Security-Android-0.11.1-Alpha.apk
-          cp "$HASH" releases/VARA-Security-Android-0.11.1-Alpha.sha256
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add releases/VARA-Security-Android-0.11.1-Alpha.apk releases/VARA-Security-Android-0.11.1-Alpha.sha256
-          if git diff --cached --quiet; then
-            echo "Validated 0.11.1 release already published; nothing to commit."
-            exit 0
-          fi
-          git commit -m "Publish VARA Security 0.11.1 Alpha APK"
-          git push origin HEAD:vara-security-releases
+
+          for attempt in 1 2 3 4 5; do
+            git fetch origin vara-security-releases
+            git reset --hard origin/vara-security-releases
+            mkdir -p releases
+            cp "$FINAL" releases/VARA-Security-Android-0.11.1-Alpha.apk
+            cp "$HASH" releases/VARA-Security-Android-0.11.1-Alpha.sha256
+            git add releases/VARA-Security-Android-0.11.1-Alpha.apk releases/VARA-Security-Android-0.11.1-Alpha.sha256
+            if git diff --cached --quiet; then
+              echo "Validated 0.11.1 release already published; nothing to commit."
+              exit 0
+            fi
+            git commit -m "Publish VARA Security 0.11.1 Alpha APK"
+            if git push origin HEAD:vara-security-releases; then
+              exit 0
+            fi
+            echo "Release branch advanced concurrently; retrying publication (attempt $attempt/5)."
+            sleep $((attempt * 2))
+          done
+          echo "Failed to publish validated 0.11.1 release after retries." >&2
+          exit 1
