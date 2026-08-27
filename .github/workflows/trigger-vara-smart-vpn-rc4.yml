@@ -1,6 +1,6 @@
 name: Trigger Vara Smart VPN RC4
 
-# Trigger revision: foreground-visible-smoke-1
+# Trigger revision: rc5-stability-verifier-1
 on:
   push:
     branches: [ main ]
@@ -28,4 +28,4 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/${{ github.repository }}/actions/workflows/vara-smart-vpn-431-rc4-open-build.yml/dispatches \
             -d '{"ref":"main"}'
-          echo "RC4 workflow dispatched from free public runner."
+          echo "RC5 stability source workflow dispatched from free public runner."
