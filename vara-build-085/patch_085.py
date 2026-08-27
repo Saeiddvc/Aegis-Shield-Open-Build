@@ -1,0 +1,76 @@
+from pathlib import Path
+import re
+import sys
+
+if len(sys.argv) != 2:
+    raise SystemExit("usage: patch_085.py <android-project-root>")
+
+root = Path(sys.argv[1])
+java = root / "app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+gradle = root / "app/build.gradle"
+s = java.read_text(encoding="utf-8")
+
+
+def rep(old: str, new: str, label: str):
+    global s
+    count = s.count(old)
+    if count != 1:
+        raise SystemExit(f"patch failed [{label}]: expected 1 match, found {count}")
+    s = s.replace(old, new, 1)
+
+# 0.8.5: remove two URL-authority ambiguity classes from protected destinations.
+# Embedded credentials (userinfo) can make a URL visually misleading, and backslashes
+# are handled inconsistently by URL parsers. Protected mode rejects both before load.
+rep(
+    '            int port = u.getPort();',
+    '''            String userInfo = u.getUserInfo();
+            if (userInfo != null && !userInfo.isEmpty()) return null;
+            if (u.toString().contains("\\\\")) return null;
+            int port = u.getPort();''',
+    "reject embedded URL credentials and backslashes",
+)
+
+rep(
+    'hero.addView(tv(t("VARA requires HTTPS on the standard secure port, blocks IP and internationalized/punycode hostnames, and opens the destination inside the hardened browser.", "VARA فقط HTTPS روی درگاه امن استاندارد را می‌پذیرد، مقصدهای IP و دامنه‌های بین‌المللی/punycode را مسدود می‌کند و صفحه را در مرورگر سخت‌گیرانه باز می‌کند."), 13, Color.rgb(220,236,239), false));',
+    'hero.addView(tv(t("VARA requires HTTPS on the standard secure port and blocks IP, internationalized/punycode hostnames, embedded URL credentials and ambiguous backslash URLs before protected browsing.", "VARA فقط HTTPS روی درگاه امن استاندارد را می‌پذیرد و پیش از مرور محافظت‌شده، مقصدهای IP، دامنه‌های بین‌المللی/punycode، اطلاعات کاربری داخل نشانی و URLهای مبهم دارای بک‌اسلش را مسدود می‌کند."), 13, Color.rgb(220,236,239), false));',
+    "SafePay destination policy copy",
+)
+
+rep(
+    'Toast.makeText(this, t("Enter a standard HTTPS domain without an IP address, custom port or internationalized hostname", "یک دامنه استاندارد HTTPS وارد کنید؛ IP، درگاه سفارشی و دامنه بین‌المللی مجاز نیست"), Toast.LENGTH_LONG).show();',
+    'Toast.makeText(this, t("Enter a standard HTTPS domain without IP, custom port, internationalized hostname, embedded credentials or backslashes", "یک دامنه استاندارد HTTPS وارد کنید؛ IP، درگاه سفارشی، دامنه بین‌المللی، اطلاعات کاربری داخل URL و بک‌اسلش مجاز نیست"), Toast.LENGTH_LONG).show();',
+    "SafePay validation message",
+)
+
+rep(
+    'destination.addView(tv(t("HTTPS only • standard port 443 • no IP literals • no internationalized/punycode hostnames", "فقط HTTPS • درگاه استاندارد 443 • بدون IP • بدون دامنه بین‌المللی/punycode"), 12, MUTED, false));',
+    'destination.addView(tv(t("HTTPS only • standard port 443 • no IP literals • no internationalized/punycode hostnames • no URL credentials • no backslash ambiguity", "فقط HTTPS • درگاه استاندارد 443 • بدون IP • بدون دامنه بین‌المللی/punycode • بدون اطلاعات کاربری در URL • بدون ابهام بک‌اسلش"), 12, MUTED, false));',
+    "compatibility destination policy",
+)
+
+# Version metadata.
+s = s.replace('0.8.4 ALPHA', '0.8.5 ALPHA')
+s = s.replace('0.8.4 Alpha • versionCode 804', '0.8.5 Alpha • versionCode 805')
+s = s.replace('0.8.4 Alpha', '0.8.5 Alpha')
+s = s.replace('VARA 0.8.4 requires Android 8.0 / API 26 or newer.', 'VARA 0.8.5 requires Android 8.0 / API 26 or newer.')
+java.write_text(s, encoding="utf-8")
+
+g = gradle.read_text(encoding="utf-8")
+g, n1 = re.subn(r'versionCode\s+804\b', 'versionCode 805', g, count=1)
+g, n2 = re.subn(r"versionName\s+['\"]0\.8\.4-alpha['\"]", "versionName '0.8.5-alpha'", g, count=1)
+if n1 != 1 or n2 != 1:
+    raise SystemExit(f"version patch failed: versionCode={n1}, versionName={n2}")
+gradle.write_text(g, encoding="utf-8")
+
+checks = [
+    'u.getUserInfo()',
+    'u.toString().contains("\\\\")',
+    'embedded URL credentials',
+    'no URL credentials',
+    '0.8.5 ALPHA',
+]
+for marker in checks:
+    if marker not in s:
+        raise SystemExit(f"missing expected marker after patch: {marker}")
+
+print("VARA Security 0.8.5 protected destination ambiguity hardening patch applied")
