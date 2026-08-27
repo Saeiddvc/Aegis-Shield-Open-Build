@@ -68,6 +68,7 @@ if s.count(old) != 1:
 s = s.replace(old, '        if (adbEnabled()) count++;\n        if (activeNetworkCaptivePortalDetected()) count++;\n        return count;', 1)
 
 old = '''        if (adbEnabled()) {
+            setProtectedRequirementFixPending(true);
             try { openSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS); }
             catch (Exception ignored) { openSettings(Settings.ACTION_SETTINGS); }
             return;
@@ -76,11 +77,13 @@ old = '''        if (adbEnabled()) {
 if s.count(old) != 1:
     raise SystemExit(f"patch failed [direct captive portal remediation]: found {s.count(old)}")
 s = s.replace(old, '''        if (adbEnabled()) {
+            setProtectedRequirementFixPending(true);
             try { openSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS); }
             catch (Exception ignored) { openSettings(Settings.ACTION_SETTINGS); }
             return;
         }
         if (activeNetworkCaptivePortalDetected()) {
+            setProtectedRequirementFixPending(true);
             openSettings(Settings.ACTION_WIRELESS_SETTINGS);
             return;
         }
