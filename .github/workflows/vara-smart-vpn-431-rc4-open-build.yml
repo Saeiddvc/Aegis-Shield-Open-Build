@@ -215,6 +215,7 @@ jobs:
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
           df -h /
 
+      # Retry the Android 16 runtime gate after a runner-level failure; app/package/JNI identifiers are unchanged.
       - name: Android 16 cold start and VPN foreground-service smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
