@@ -22,42 +22,35 @@ for marker in required:
     if marker not in s:
         raise SystemExit(f"missing validated 0.11.2 prerequisite: {marker}")
 
-# 0.11.3: tighten the protected WebView's local-origin and window-creation surface.
-# Banking/payment pages retain JavaScript and DOM storage compatibility, while
-# file-origin cross-origin access, automatic JS windows, background media autoplay and
-# reusable HTTP cache state are explicitly disabled for every protected session.
-pattern = re.compile(
-    r"\s*ws\.setJavaScriptEnabled\(true\);\s*"
-    r"ws\.setDomStorageEnabled\(true\);\s*"
-    r"ws\.setAllowFileAccess\(false\);\s*"
-    r"ws\.setAllowContentAccess\(false\);\s*"
-    r"ws\.setMixedContentMode\(WebSettings\.MIXED_CONTENT_NEVER_ALLOW\);\s*"
-    r"ws\.setSaveFormData\(false\);\s*"
-    r"ws\.setDatabaseEnabled\(false\);"
-)
-matches = list(pattern.finditer(s))
-if len(matches) != 1:
-    raise SystemExit(f"patch failed [protected WebSettings baseline]: found {len(matches)}")
-new = '''
-        ws.setJavaScriptEnabled(true);
-        ws.setDomStorageEnabled(true);
-        ws.setAllowFileAccess(false);
-        ws.setAllowContentAccess(false);
-        ws.setAllowFileAccessFromFileURLs(false);
-        ws.setAllowUniversalAccessFromFileURLs(false);
-        ws.setJavaScriptCanOpenWindowsAutomatically(false);
-        ws.setSupportMultipleWindows(false);
-        ws.setMediaPlaybackRequiresUserGesture(true);
-        ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        ws.setSaveFormData(false);
-        ws.setDatabaseEnabled(false);
-        ws.setCacheMode(WebSettings.LOAD_NO_CACHE);'''
-s = pattern.sub(new, s, count=1)
+# 0.11.3: harden each protected WebView without depending on a brittle full-block anchor.
+# JavaScript and DOM storage remain enabled for banking compatibility; local file-origin
+# bridging, secondary windows, autoplay and reusable HTTP cache are explicitly disabled.
+anchor = '        ws.setAllowContentAccess(false);'
+if s.count(anchor) != 1:
+    raise SystemExit(f"patch failed [protected WebSettings anchor]: found {s.count(anchor)}")
+
+hardening_lines = [
+    '        ws.setAllowFileAccessFromFileURLs(false);',
+    '        ws.setAllowUniversalAccessFromFileURLs(false);',
+    '        ws.setJavaScriptCanOpenWindowsAutomatically(false);',
+    '        ws.setSupportMultipleWindows(false);',
+    '        ws.setMediaPlaybackRequiresUserGesture(true);',
+]
+missing = [line for line in hardening_lines if line not in s]
+if missing:
+    s = s.replace(anchor, anchor + '\n' + '\n'.join(missing), 1)
+
+cache_line = '        ws.setCacheMode(WebSettings.LOAD_NO_CACHE);'
+if cache_line not in s:
+    save_anchor = '        ws.setSaveFormData(false);'
+    if s.count(save_anchor) != 1:
+        raise SystemExit(f"patch failed [cache policy anchor]: found {s.count(save_anchor)}")
+    s = s.replace(save_anchor, cache_line + '\n' + save_anchor, 1)
 
 # Document the hardened WebView contract in Compatibility so runtime behavior is visible.
-anchor = '        LinearLayout validatedNetworkCard = card();'
-if s.count(anchor) != 1:
-    raise SystemExit(f"patch failed [compatibility webview policy anchor]: found {s.count(anchor)}")
+compat_anchor = '        LinearLayout validatedNetworkCard = card();'
+if s.count(compat_anchor) != 1:
+    raise SystemExit(f"patch failed [compatibility webview policy anchor]: found {s.count(compat_anchor)}")
 card = '''        LinearLayout webViewIsolationCard = card();
         webViewIsolationCard.addView(tv(t("Protected WebView isolation", "جداسازی WebView محافظت‌شده"), 16, NAVY, true));
         webViewIsolationCard.addView(tv(t("File-origin access blocked • automatic JavaScript windows blocked • multiple windows disabled • media requires user gesture • no reusable HTTP cache",
@@ -67,7 +60,7 @@ card = '''        LinearLayout webViewIsolationCard = card();
         content.addView(webViewIsolationCard);
 
 '''
-s = s.replace(anchor, card + anchor, 1)
+s = s.replace(compat_anchor, card + compat_anchor, 1)
 
 s = s.replace('0.11.2 ALPHA', '0.11.3 ALPHA')
 s = s.replace('0.11.2 Alpha • versionCode 1102', '0.11.3 Alpha • versionCode 1103')
