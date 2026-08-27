@@ -226,21 +226,28 @@ jobs:
           emulator-boot-timeout: 900
           disable-animations: true
           script: |
+            set -euo pipefail
             mkdir -p /tmp/android16-test-results
             "$PROJECT_DIR/gradlew" --no-daemon --stacktrace -p "$PROJECT_DIR" connectedPlaystoreDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.v2ray.ang.VaraRuntimeSmokeTest > /tmp/connected-android16-test.log 2>&1
             cat /tmp/connected-android16-test.log
-            adb logcat -d -v threadtime > /tmp/vara-rc4-logcat.txt || true
-            adb shell dumpsys activity services com.saeiddvc.vpn > /tmp/android16-services.txt || true
-            adb shell dumpsys activity processes com.saeiddvc.vpn > /tmp/android16-processes.txt || true
-            adb shell uiautomator dump /sdcard/vara-ui.xml >/dev/null 2>&1 || true
-            adb pull /sdcard/vara-ui.xml /tmp/vara-ui.xml >/dev/null 2>&1 || true
             cp -R "$PROJECT_DIR/app/build/outputs/androidTest-results" /tmp/android16-test-results/ 2>/dev/null || true
             cp -R "$PROJECT_DIR/app/build/reports/androidTests" /tmp/android16-test-results/ 2>/dev/null || true
+
+            # connectedAndroidTest removes the app when instrumentation finishes.
+            # Reinstall the source-built universal APK before the standalone cold-start gate.
+            UNIVERSAL="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*universal.apk' -print -quit)"
+            test -n "$UNIVERSAL"
+            adb install -r "$UNIVERSAL"
+            adb shell pm path com.saeiddvc.vpn | grep -q '^package:'
+
             adb logcat -c || true
             bash "$PROJECT_DIR/scripts/android16_cold_launch_test.sh"
             sleep 3
             adb logcat -d -v threadtime > /tmp/vara-rc4-logcat.txt
-            APP_PID="$(adb shell pidof -s com.saeiddvc.vpn 2>/dev/null | tr -d '\r' || true)"; test -n "$APP_PID"
+            adb shell dumpsys activity services com.saeiddvc.vpn > /tmp/android16-services.txt || true
+            adb shell dumpsys activity processes com.saeiddvc.vpn > /tmp/android16-processes.txt || true
+            APP_PID="$(adb shell pidof -s com.saeiddvc.vpn 2>/dev/null | tr -d '\r' || true)"
+            test -n "$APP_PID"
             adb logcat -d -v threadtime --pid="$APP_PID" > /tmp/vara-rc4-app-logcat.txt || true
             ! grep -E 'FATAL EXCEPTION|AndroidRuntime.*FATAL|NoClassDefFoundError|ClassNotFoundException|ForegroundServiceDidNotStartInTimeException|android\.app\.RemoteServiceException' /tmp/vara-rc4-app-logcat.txt
             ! (grep -E 'ForegroundServiceDidNotStartInTimeException|android\.app\.RemoteServiceException' /tmp/vara-rc4-logcat.txt | grep -E 'com\.saeiddvc\.vpn|CoreVpnService')
