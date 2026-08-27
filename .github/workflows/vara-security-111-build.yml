@@ -1,0 +1,152 @@
+name: VARA Security 0.11.1 Build
+
+on:
+  push:
+    branches: [ vara-security-0.11.1-build ]
+    paths:
+      - '.github/workflows/vara-security-111-build.yml'
+      - 'vara-build-111/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/vara-security-111-build.yml'
+      - 'vara-build-111/**'
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Prepare VARA 0.11.1 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/vara-111"
+          mkdir -p "$WORK"
+          cp -a vara-build-042/android "$WORK/android"
+          for v in 043 044 045; do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
+          python3 vara-build-046/fix_patch_046.py vara-build-046/patch_046.py
+          python3 vara-build-046/patch_046.py "$WORK/android"
+          for v in 047 048 049 050 051 052 053 054 055 056 057 058 059 060 061 062 063 064 065 066 067 068 069 070 071 072 073 074 075 076 077 078 079 080 081 082 083 084 085 086 087 088 089 090 091 092 093 094 095 096 097 098 099 100 101 102 103 104 105 106 107 108 109 110 111; do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
+          MAIN="$WORK/android/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+          MANIFEST="$WORK/android/app/src/main/AndroidManifest.xml"
+          NSC="$WORK/android/app/src/main/res/xml/network_security_config.xml"
+          grep -q "versionCode 1101" "$WORK/android/app/build.gradle"
+          grep -q "versionName '0.11.1-alpha'" "$WORK/android/app/build.gradle"
+          grep -q '0.11.1 ALPHA' "$MAIN"
+          grep -q 'activeNetworkCaptivePortalDetected()' "$MAIN"
+          grep -q 'captivePortalNetworkDetail()' "$MAIN"
+          grep -q 'NET_CAPABILITY_CAPTIVE_PORTAL' "$MAIN"
+          grep -q 'Captive portal network must be cleared' "$MAIN"
+          grep -q 'Protected browser blocked: captive portal network detected' "$MAIN"
+          grep -q 'Network trust • captive portal' "$MAIN"
+          grep -q 'Device Scan remains independent' "$MAIN"
+          grep -q 'activeVpnTransportDetected()' "$MAIN"
+          grep -q 'deviceEncryptionStatus()' "$MAIN"
+          grep -q 'onJsAlert(WebView view, String url, String message, android.webkit.JsResult result)' "$MAIN"
+          grep -q 'currentPlatformIdentity()' "$MAIN"
+          grep -q 'safePayReadinessEnvironmentChanged()' "$MAIN"
+          grep -q 'protectedSessionPrerequisiteChecklist()' "$MAIN"
+          grep -q 'fixProtectedSessionRequirement()' "$MAIN"
+          grep -q 'scanHistoryEntries()' "$MAIN"
+          grep -q 'English is the default' "$MAIN"
+          grep -q 'protectedSessionDeadlineMs' "$MAIN"
+          grep -q 'endProtectedSessionByUser()' "$MAIN"
+          grep -q 'WebStorage.getInstance().deleteAllData()' "$MAIN"
+          grep -q 'WebView.setWebContentsDebuggingEnabled(false)' "$MAIN"
+          grep -q 'onSafeBrowsingHit' "$MAIN"
+          grep -q 'response.backToSafety(true)' "$MAIN"
+          grep -q 'FLAG_SECURE' "$MAIN"
+          grep -q 'android.permission.ACCESS_NETWORK_STATE' "$MANIFEST"
+          grep -q 'android:networkSecurityConfig="@xml/network_security_config"' "$MANIFEST"
+          grep -q 'android:usesCleartextTraffic="false"' "$MANIFEST"
+          grep -q '<certificates src="system" />' "$NSC"
+          if grep -Eq 'src="user"|src="@raw/' "$NSC"; then echo 'Non-system trust anchor detected' >&2; exit 1; fi
+          echo "ANDROID_PROJECT=$WORK/android" >> "$GITHUB_ENV"
+
+      - name: Build unsigned release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          cd "$ANDROID_PROJECT"
+          gradle --no-daemon clean assembleRelease
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Sign, validate and compatibility-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/vara-111-sign"
+          mkdir -p "$ROOT"
+          KEYSTORE="$ROOT/vara-alpha-dev.keystore"
+          base64 --decode vara-build-031/vara-alpha-dev.keystore.b64 > "$KEYSTORE"
+          keytool -list -keystore "$KEYSTORE" -alias vara_alpha -storepass 'VARAAlphaDev2026!' >/dev/null
+          UNSIGNED="$ANDROID_PROJECT/app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED="$ROOT/vara-aligned.apk"
+          OUT="$RUNNER_TEMP/android-release"
+          mkdir -p "$OUT"
+          FINAL="$OUT/VARA-Security-Android-0.11.1-Alpha.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks "$KEYSTORE" --ks-key-alias vara_alpha --ks-pass pass:'VARAAlphaDev2026!' --key-pass pass:'VARAAlphaDev2026!' --out "$FINAL" "$ALIGNED"
+          unzip -t "$FINAL" >/dev/null
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$FINAL" | tee "$OUT/signature.txt"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$FINAL" | tee "$OUT/badging.txt"
+          grep -q "versionCode='1101'" "$OUT/badging.txt"
+          grep -q "versionName='0.11.1-alpha'" "$OUT/badging.txt"
+          grep -q "sdkVersion:'26'" "$OUT/badging.txt"
+          grep -q "targetSdkVersion:'35'" "$OUT/badging.txt"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$FINAL" | tee "$OUT/permissions.txt"
+          grep -q 'android.permission.INTERNET' "$OUT/permissions.txt"
+          grep -q 'android.permission.QUERY_ALL_PACKAGES' "$OUT/permissions.txt"
+          grep -q 'android.permission.ACCESS_NETWORK_STATE' "$OUT/permissions.txt"
+          if grep -Eq 'READ_SMS|RECEIVE_SMS|SEND_SMS|READ_CONTACTS|WRITE_CONTACTS|RECORD_AUDIO|CAMERA|ACCESS_FINE_LOCATION|SYSTEM_ALERT_WINDOW|REQUEST_INSTALL_PACKAGES|BIND_ACCESSIBILITY_SERVICE|BIND_NOTIFICATION_LISTENER_SERVICE|BIND_AUTOFILL_SERVICE' "$OUT/permissions.txt"; then echo 'Unexpected sensitive permission detected' >&2; exit 1; fi
+          grep -q 'android:allowBackup="false"' "$ANDROID_PROJECT/app/src/main/AndroidManifest.xml"
+          grep -q 'android:usesCleartextTraffic="false"' "$ANDROID_PROJECT/app/src/main/AndroidManifest.xml"
+          unzip -p "$FINAL" classes.dex | strings > "$ROOT/dex-strings.txt"
+          if grep -q 'EICAR-STANDARD-ANTIVIRUS-TEST-FILE' "$ROOT/dex-strings.txt"; then echo 'Forbidden AV test payload found' >&2; exit 1; fi
+          sha256sum "$FINAL" | tee "$OUT/VARA-Security-Android-0.11.1-Alpha.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VARA-Security-Android-0.11.1-Alpha
+          path: ${{ runner.temp }}/android-release/*
+          if-no-files-found: error
+
+      - name: Publish validated APK to persistent release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          FINAL="$RUNNER_TEMP/android-release/VARA-Security-Android-0.11.1-Alpha.apk"
+          HASH="$RUNNER_TEMP/android-release/VARA-Security-Android-0.11.1-Alpha.sha256"
+          PUB="$RUNNER_TEMP/vara-release"
+          git fetch origin vara-security-releases
+          git worktree add "$PUB" origin/vara-security-releases
+          cd "$PUB"
+          git checkout -B vara-security-releases origin/vara-security-releases
+          mkdir -p releases
+          cp "$FINAL" releases/VARA-Security-Android-0.11.1-Alpha.apk
+          cp "$HASH" releases/VARA-Security-Android-0.11.1-Alpha.sha256
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add releases/VARA-Security-Android-0.11.1-Alpha.apk releases/VARA-Security-Android-0.11.1-Alpha.sha256
+          if git diff --cached --quiet; then
+            echo "Validated 0.11.1 release already published; nothing to commit."
+            exit 0
+          fi
+          git commit -m "Publish VARA Security 0.11.1 Alpha APK"
+          git push origin HEAD:vara-security-releases
