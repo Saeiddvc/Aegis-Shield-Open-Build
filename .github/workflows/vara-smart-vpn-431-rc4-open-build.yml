@@ -226,6 +226,7 @@ jobs:
           emulator-boot-timeout: 900
           disable-animations: true
           script: |
+            bash <<'BASH'
             set -euo pipefail
             mkdir -p /tmp/android16-test-results
             "$PROJECT_DIR/gradlew" --no-daemon --stacktrace -p "$PROJECT_DIR" connectedPlaystoreDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.v2ray.ang.VaraRuntimeSmokeTest > /tmp/connected-android16-test.log 2>&1
@@ -250,6 +251,7 @@ jobs:
             adb shell uiautomator dump /sdcard/vara-ui.xml >/dev/null
             adb pull /sdcard/vara-ui.xml /tmp/vara-ui.xml >/dev/null
             grep -q "Vara" /tmp/vara-ui.xml
+            BASH
 
       - name: Prepare RC4 deliverable
         if: success()
