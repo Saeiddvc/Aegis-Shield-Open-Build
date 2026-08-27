@@ -226,51 +226,24 @@ jobs:
           emulator-boot-timeout: 900
           disable-animations: true
           script: |
-            set -u
-            cd "$PROJECT_DIR"
             mkdir -p /tmp/android16-test-results
-            set +e
-            ./gradlew --no-daemon --stacktrace connectedPlaystoreDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.class=com.v2ray.ang.VaraRuntimeSmokeTest \
-              > /tmp/connected-android16-test.log 2>&1
-            TEST_RC=$?
-            set -e
+            "$PROJECT_DIR/gradlew" --no-daemon --stacktrace -p "$PROJECT_DIR" connectedPlaystoreDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.v2ray.ang.VaraRuntimeSmokeTest > /tmp/connected-android16-test.log 2>&1
             cat /tmp/connected-android16-test.log
             adb logcat -d -v threadtime > /tmp/vara-rc4-logcat.txt || true
             adb shell dumpsys activity services com.saeiddvc.vpn > /tmp/android16-services.txt || true
             adb shell dumpsys activity processes com.saeiddvc.vpn > /tmp/android16-processes.txt || true
             adb shell uiautomator dump /sdcard/vara-ui.xml >/dev/null 2>&1 || true
             adb pull /sdcard/vara-ui.xml /tmp/vara-ui.xml >/dev/null 2>&1 || true
-            cp -R app/build/outputs/androidTest-results /tmp/android16-test-results/ 2>/dev/null || true
-            cp -R app/build/reports/androidTests /tmp/android16-test-results/ 2>/dev/null || true
-            if [ "$TEST_RC" -ne 0 ]; then
-              echo "Android 16 instrumentation failed with rc=$TEST_RC"
-              exit "$TEST_RC"
-            fi
-
+            cp -R "$PROJECT_DIR/app/build/outputs/androidTest-results" /tmp/android16-test-results/ 2>/dev/null || true
+            cp -R "$PROJECT_DIR/app/build/reports/androidTests" /tmp/android16-test-results/ 2>/dev/null || true
             adb logcat -c || true
-            bash scripts/android16_cold_launch_test.sh
+            bash "$PROJECT_DIR/scripts/android16_cold_launch_test.sh"
             sleep 3
             adb logcat -d -v threadtime > /tmp/vara-rc4-logcat.txt
-
-            PACKAGE="com.saeiddvc.vpn"
-            APP_PID="$(adb shell pidof -s "$PACKAGE" 2>/dev/null | tr -d '\r' || true)"
-            if [ -z "$APP_PID" ]; then
-              echo "Vara process is not alive after Android 16 cold launch."
-              exit 1
-            fi
-
+            APP_PID="$(adb shell pidof -s com.saeiddvc.vpn 2>/dev/null | tr -d '\r' || true)"; test -n "$APP_PID"
             adb logcat -d -v threadtime --pid="$APP_PID" > /tmp/vara-rc4-app-logcat.txt || true
-            if grep -E 'FATAL EXCEPTION|AndroidRuntime.*FATAL|NoClassDefFoundError|ClassNotFoundException|ForegroundServiceDidNotStartInTimeException|android\.app\.RemoteServiceException' /tmp/vara-rc4-app-logcat.txt; then
-              echo "Vara app-process crash detected during Android 16 smoke test."
-              exit 1
-            fi
-
-            if grep -E 'ForegroundServiceDidNotStartInTimeException|android\.app\.RemoteServiceException' /tmp/vara-rc4-logcat.txt | grep -E 'com\.saeiddvc\.vpn|CoreVpnService'; then
-              echo "Vara foreground-service failure detected during Android 16 smoke test."
-              exit 1
-            fi
-
+            ! grep -E 'FATAL EXCEPTION|AndroidRuntime.*FATAL|NoClassDefFoundError|ClassNotFoundException|ForegroundServiceDidNotStartInTimeException|android\.app\.RemoteServiceException' /tmp/vara-rc4-app-logcat.txt
+            ! (grep -E 'ForegroundServiceDidNotStartInTimeException|android\.app\.RemoteServiceException' /tmp/vara-rc4-logcat.txt | grep -E 'com\.saeiddvc\.vpn|CoreVpnService')
             adb shell uiautomator dump /sdcard/vara-ui.xml >/dev/null
             adb pull /sdcard/vara-ui.xml /tmp/vara-ui.xml >/dev/null
             grep -q "Vara" /tmp/vara-ui.xml
