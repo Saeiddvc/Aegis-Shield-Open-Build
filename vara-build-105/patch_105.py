@@ -89,15 +89,16 @@ new_summary_fragment = '''        boolean changed = safePayReadinessEnvironmentC
                 : (fresh ? t("CURRENT", "معتبر") : t("STALE • retest recommended", "قدیمی • آزمون مجدد پیشنهاد می‌شود"));'''
 s = s.replace(old_summary_fragment, new_summary_fragment, 1)
 
-# Add explicit disclosure to Compatibility so a persisted READY never looks like a live authorization.
 compat_anchor = '        TextView readinessTestHistory = tv(safePayReadinessTestSummary(), 12, safePayReadinessTestFresh() ? MUTED : WARN, false);'
 if s.count(compat_anchor) != 1:
-    raise SystemExit(f"patch failed [compat changed-state disclosure]: found {s.count(compat_anchor)}")n
-s = s.replace(compat_anchor,
-    compat_anchor + '\n        if (safePayReadinessEnvironmentChanged()) {\n            protectedReady.addView(tv(t("Device prerequisites changed since the last readiness test. Run the test again before relying on the displayed result.", "پیش‌نیازهای دستگاه از آخرین آزمون آمادگی تغییر کرده‌اند. پیش از اتکا به نتیجه نمایش‌داده‌شده، آزمون را دوباره اجرا کنید."), 12, WARN, true));\n        }',
-    1)
+    raise SystemExit(f"patch failed [compat changed-state disclosure]: found {s.count(compat_anchor)}")
 
-# Version metadata.
+s = s.replace(
+    compat_anchor,
+    compat_anchor + '\n        if (safePayReadinessEnvironmentChanged()) {\n            protectedReady.addView(tv(t("Device prerequisites changed since the last readiness test. Run the test again before relying on the displayed result.", "پیش‌نیازهای دستگاه از آخرین آزمون آمادگی تغییر کرده‌اند. پیش از اتکا به نتیجه نمایش‌داده‌شده، آزمون را دوباره اجرا کنید."), 12, WARN, true));\n        }',
+    1,
+)
+
 s = s.replace('0.10.4 ALPHA', '0.10.5 ALPHA')
 s = s.replace('0.10.4 Alpha • versionCode 1004', '0.10.5 Alpha • versionCode 1005')
 s = s.replace('0.10.4 Alpha', '0.10.5 Alpha')
