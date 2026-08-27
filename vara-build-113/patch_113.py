@@ -23,13 +23,23 @@ for marker in required:
         raise SystemExit(f"missing validated 0.11.2 prerequisite: {marker}")
 
 # 0.11.3: tighten the protected WebView's local-origin and window-creation surface.
-# Banking/payment pages still retain JavaScript and DOM storage compatibility, while
+# Banking/payment pages retain JavaScript and DOM storage compatibility, while
 # file-origin cross-origin access, automatic JS windows, background media autoplay and
 # reusable HTTP cache state are explicitly disabled for every protected session.
-old = '        ws.setJavaScriptEnabled(true); ws.setDomStorageEnabled(true); ws.setAllowFileAccess(false); ws.setAllowContentAccess(false); ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW); ws.setSaveFormData(false); ws.setDatabaseEnabled(false);'
-if s.count(old) != 1:
-    raise SystemExit(f"patch failed [protected WebSettings baseline]: found {s.count(old)}")
-new = '''        ws.setJavaScriptEnabled(true);
+pattern = re.compile(
+    r"\s*ws\.setJavaScriptEnabled\(true\);\s*"
+    r"ws\.setDomStorageEnabled\(true\);\s*"
+    r"ws\.setAllowFileAccess\(false\);\s*"
+    r"ws\.setAllowContentAccess\(false\);\s*"
+    r"ws\.setMixedContentMode\(WebSettings\.MIXED_CONTENT_NEVER_ALLOW\);\s*"
+    r"ws\.setSaveFormData\(false\);\s*"
+    r"ws\.setDatabaseEnabled\(false\);"
+)
+matches = list(pattern.finditer(s))
+if len(matches) != 1:
+    raise SystemExit(f"patch failed [protected WebSettings baseline]: found {len(matches)}")
+new = '''
+        ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setAllowFileAccess(false);
         ws.setAllowContentAccess(false);
@@ -42,9 +52,9 @@ new = '''        ws.setJavaScriptEnabled(true);
         ws.setSaveFormData(false);
         ws.setDatabaseEnabled(false);
         ws.setCacheMode(WebSettings.LOAD_NO_CACHE);'''
-s = s.replace(old, new, 1)
+s = pattern.sub(new, s, count=1)
 
-# Document the hardened WebView contract in Compatibility so the runtime behavior is visible.
+# Document the hardened WebView contract in Compatibility so runtime behavior is visible.
 anchor = '        LinearLayout validatedNetworkCard = card();'
 if s.count(anchor) != 1:
     raise SystemExit(f"patch failed [compatibility webview policy anchor]: found {s.count(anchor)}")
