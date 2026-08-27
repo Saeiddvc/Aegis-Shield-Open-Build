@@ -84,7 +84,6 @@ jobs:
           set -euo pipefail
           cd "$PROJECT_DIR"
           AEGIS_SOURCE_ROOT="$PWD" bash ci/apply-aegis-430.sh
-
           mkdir -p app/src/main/res/font
           REGULAR_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Regular' | head -n1)"
           BOLD_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Bold' | head -n1)"
@@ -94,7 +93,6 @@ jobs:
           cp "$BOLD_FONT" app/src/main/res/font/b_traffic_bold.ttf
           test -s app/src/main/res/font/b_traffic_regular.ttf
           test -s app/src/main/res/font/b_traffic_bold.ttf
-
           python3 ci/vara-rebrand.py "$PWD"
           python3 ci/vara-runtime-hotfix.py "$PWD"
           grep -q 'versionName = "4.3.1"' app/build.gradle.kts
@@ -203,8 +201,9 @@ jobs:
           grep -q 'androidx.work' /tmp/dex-packages.txt
           apkanalyzer manifest print "$UNIVERSAL" > /tmp/manifest.xml
           ! grep -q 'android:debuggable="true"' /tmp/manifest.xml
-          unzip -l "$ARM64" | grep -q 'lib/arm64-v8a/libaegis-openvpn3.so'
-          unzip -l "$ARM64" | grep -q 'lib/arm64-v8a/libhev-socks5-tunnel.so'
+          unzip -l "$ARM64" > /tmp/arm64-apk-list.txt
+          grep -Fq 'lib/arm64-v8a/libaegis-openvpn3.so' /tmp/arm64-apk-list.txt
+          grep -Fq 'lib/arm64-v8a/libhev-socks5-tunnel.so' /tmp/arm64-apk-list.txt
           grep -q 'b_traffic_regular' /tmp/vara-resources.txt
           grep -q 'b_traffic_bold' /tmp/vara-resources.txt
 
@@ -232,14 +231,10 @@ jobs:
             cat /tmp/connected-android16-test.log
             cp -R "$PROJECT_DIR/app/build/outputs/androidTest-results" /tmp/android16-test-results/ 2>/dev/null || true
             cp -R "$PROJECT_DIR/app/build/reports/androidTests" /tmp/android16-test-results/ 2>/dev/null || true
-
-            # connectedAndroidTest removes the app when instrumentation finishes.
-            # Reinstall the source-built universal APK before the standalone cold-start gate.
             UNIVERSAL="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*universal.apk' -print -quit)"
             test -n "$UNIVERSAL"
             adb install -r "$UNIVERSAL"
             adb shell pm path com.saeiddvc.vpn | grep -q '^package:'
-
             adb logcat -c || true
             bash "$PROJECT_DIR/scripts/android16_cold_launch_test.sh"
             sleep 3
@@ -288,6 +283,7 @@ jobs:
             /tmp/dex-packages.txt
             /tmp/manifest.xml
             /tmp/vara-resources.txt
+            /tmp/arm64-apk-list.txt
             /tmp/connected-android16-test.log
             /tmp/vara-rc4-logcat.txt
             /tmp/vara-rc4-app-logcat.txt
