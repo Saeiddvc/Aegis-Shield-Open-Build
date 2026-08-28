@@ -20,10 +20,13 @@ for marker in [
         raise SystemExit(f"missing validated 0.11.11 prerequisite: {marker}")
 
 # 0.11.12: protected WebViews must not hand web-triggered downloads to Android.
-# Install a no-op DownloadListener on the WebView itself. The previous patch
-# attempted to append this statement inside the anonymous WebChromeClient body,
-# which is not valid Java. Here we locate each enclosing setWebChromeClient(...)
-# call, match its braces structurally, and insert the listener after the call.
+# Install a no-op DownloadListener on each protected WebView itself. Local WebView
+# variable names are intentionally allowed to repeat across different methods/scopes;
+# coverage is therefore validated by structurally matched chooser instances and
+# insertion positions rather than by receiver-name uniqueness.
+if '.setDownloadListener(' in s:
+    raise SystemExit('patch failed [download prerequisite]: unexpected pre-existing DownloadListener')
+
 chooser = re.compile(
     r'@Override public boolean onShowFileChooser\(WebView webView, ValueCallback<Uri\[\]> filePathCallback, WebChromeClient\.FileChooserParams fileChooserParams\) \{\s*'
     r'filePathCallback\.onReceiveValue\(null\);\s*return true;\s*\}'
@@ -35,17 +38,16 @@ expected = len(chooser_matches)
 
 client_start = re.compile(r'(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\.setWebChromeClient\(new WebChromeClient\(\)\s*\{')
 insertions = []
-seen_receivers = set()
 
-for cm in chooser_matches:
+for ordinal, cm in enumerate(chooser_matches, start=1):
     starts = list(client_start.finditer(s, 0, cm.start()))
     if not starts:
-        raise SystemExit('patch failed [download client]: no enclosing WebChromeClient start found')
+        raise SystemExit(f'patch failed [download client {ordinal}]: no enclosing WebChromeClient start found')
     st = starts[-1]
     receiver = st.group('receiver')
     brace_open = s.find('{', st.start(), st.end())
     if brace_open < 0:
-        raise SystemExit('patch failed [download client]: opening brace not found')
+        raise SystemExit(f'patch failed [download client {ordinal}]: opening brace not found')
 
     depth = 0
     i = brace_open
@@ -61,33 +63,36 @@ for cm in chooser_matches:
                 break
         i += 1
     if close_brace < 0 or not (st.start() < cm.start() < close_brace):
-        raise SystemExit(f'patch failed [download client]: chooser not enclosed for {receiver}')
+        raise SystemExit(f'patch failed [download client {ordinal}]: chooser not enclosed for {receiver}')
 
     j = close_brace + 1
     while j < len(s) and s[j].isspace():
         j += 1
     if s[j:j+2] != ');':
-        raise SystemExit(f'patch failed [download client]: expected WebChromeClient call terminator for {receiver}')
+        raise SystemExit(f'patch failed [download client {ordinal}]: expected WebChromeClient call terminator for {receiver}')
     statement_end = j + 2
 
     line_start = s.rfind('\n', 0, st.start()) + 1
     indent = s[line_start:st.start()]
-    if receiver in seen_receivers:
-        raise SystemExit(f'patch failed [download coverage]: duplicate protected receiver {receiver}')
-    seen_receivers.add(receiver)
     guard = f"\n{indent}{receiver}.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {{ }});"
-    insertions.append((statement_end, guard, receiver))
+    insertions.append((statement_end, guard, receiver, ordinal))
 
 if len(insertions) != expected:
     raise SystemExit(f'patch failed [download mutation]: expected {expected}, located {len(insertions)}')
 
-for pos, guard, _receiver in sorted(insertions, reverse=True):
+positions = [item[0] for item in insertions]
+if len(set(positions)) != expected:
+    raise SystemExit(f'patch failed [download mutation]: duplicate insertion positions detected ({len(set(positions))}/{expected})')
+
+for pos, guard, _receiver, _ordinal in sorted(insertions, reverse=True):
     s = s[:pos] + guard + s[pos:]
 
-for receiver in seen_receivers:
-    marker = f'{receiver}.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {{ }});'
-    if s.count(marker) != 1:
-        raise SystemExit(f'patch failed [download coverage]: {receiver} listener count={s.count(marker)}')
+listener_pattern = re.compile(
+    r'\b[A-Za-z_][A-Za-z0-9_]*\.setDownloadListener\(\(url, userAgent, contentDisposition, mimeType, contentLength\) -> \{ \}\);'
+)
+listeners = list(listener_pattern.finditer(s))
+if len(listeners) != expected:
+    raise SystemExit(f'patch failed [download coverage]: expected {expected} listeners, found {len(listeners)}')
 
 compat_anchor = '        content.addView(fileChooserCard);'
 if s.count(compat_anchor) != 1:
@@ -116,4 +121,5 @@ for marker in [
     if marker not in s:
         raise SystemExit(f'missing expected marker after patch: {marker}')
 
-print(f'VARA Security 0.11.12 protected-download hardening validated across {expected} protected WebViews: {", ".join(sorted(seen_receivers))}')
+receivers = [item[2] for item in insertions]
+print(f'VARA Security 0.11.12 protected-download hardening validated across {expected} protected WebViews: {", ".join(receivers)}')
