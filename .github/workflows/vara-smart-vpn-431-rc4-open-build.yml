@@ -1,4 +1,4 @@
-name: Vara Smart VPN 4.3.1 RC4 Open Build
+name: Vara Smart VPN 4.3.2 RC5 Open Build
 
 on:
   push:
@@ -95,7 +95,7 @@ jobs:
           test -s app/src/main/res/font/b_traffic_bold.ttf
           python3 ci/vara-rebrand.py "$PWD"
           python3 ci/vara-runtime-hotfix.py "$PWD"
-          grep -q 'versionName = "4.3.1"' app/build.gradle.kts
+          grep -q 'versionName = "4.3.2"' app/build.gradle.kts
           grep -q 'androidx.work:work-runtime:2.11.2' app/build.gradle.kts
           grep -q 'NotificationManager.ensureForeground(this)' app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt
           grep -R -q 'Vara Smart VPN' app/src/main
@@ -207,6 +207,52 @@ jobs:
           grep -q 'b_traffic_regular' /tmp/vara-resources.txt
           grep -q 'b_traffic_bold' /tmp/vara-resources.txt
 
+      - name: Build stable-signed update-compatible RC5
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace assemblePlaystoreRelease
+
+          set -a
+          source "$GITHUB_WORKSPACE/private-source/ci/signing/fieldtest-signing.env"
+          set +a
+          KEYSTORE="$RUNNER_TEMP/vara-fieldtest-release.p12"
+          base64 -d "$GITHUB_WORKSPACE/private-source/ci/signing/vara-fieldtest-release.p12.b64" > "$KEYSTORE"
+          test -s "$KEYSTORE"
+
+          rm -rf "$RUNNER_TEMP/vara-signed"
+          mkdir -p "$RUNNER_TEMP/vara-signed"
+          while IFS= read -r apk; do
+            base="$(basename "$apk" .apk)"
+            base="${base%-unsigned}"
+            aligned="$RUNNER_TEMP/vara-signed/${base}-aligned.apk"
+            signed="$RUNNER_TEMP/vara-signed/${base}-signed.apk"
+            zipalign -f -p 4 "$apk" "$aligned"
+            apksigner sign               --ks "$KEYSTORE"               --ks-type PKCS12               --ks-key-alias "$VARA_SIGN_ALIAS"               --ks-pass "pass:$VARA_SIGN_STORE_PASS"               --key-pass "pass:$VARA_SIGN_KEY_PASS"               --out "$signed"               "$aligned"
+            apksigner verify --verbose --print-certs "$signed"
+            rm -f "$aligned"
+          done < <(find app/build/outputs/apk/playstore/release -type f -name '*.apk' | sort)
+
+          SIGNED_ARM64_APK="$(find "$RUNNER_TEMP/vara-signed" -type f -name '*arm64-v8a*-signed.apk' -print -quit)"
+          SIGNED_X86_64_APK="$(find "$RUNNER_TEMP/vara-signed" -type f -name '*x86_64*-signed.apk' -print -quit)"
+          SIGNED_UNIVERSAL_APK="$(find "$RUNNER_TEMP/vara-signed" -type f -name '*universal*-signed.apk' -print -quit)"
+          test -n "$SIGNED_ARM64_APK"
+          test -n "$SIGNED_X86_64_APK"
+          test -n "$SIGNED_UNIVERSAL_APK"
+
+          test "$(apkanalyzer manifest application-id "$SIGNED_ARM64_APK")" = "com.saeiddvc.vpn"
+          test "$(apkanalyzer manifest version-name "$SIGNED_ARM64_APK")" = "4.3.2"
+          VERSION_CODE="$(apkanalyzer manifest version-code "$SIGNED_ARM64_APK")"
+          test "$VERSION_CODE" -gt 51
+          test "$(apkanalyzer manifest debuggable "$SIGNED_ARM64_APK")" = "false"
+
+          echo "SIGNED_ARM64_APK=$SIGNED_ARM64_APK" >> "$GITHUB_ENV"
+          echo "SIGNED_X86_64_APK=$SIGNED_X86_64_APK" >> "$GITHUB_ENV"
+          echo "SIGNED_UNIVERSAL_APK=$SIGNED_UNIVERSAL_APK" >> "$GITHUB_ENV"
+          echo "VARA_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          printf '%s\n' "$VARA_SIGN_CERT_SHA256" > /tmp/vara-signing-cert-sha256.txt
+
       - name: Free runner disk and enable KVM
         shell: bash
         run: |
@@ -233,10 +279,11 @@ jobs:
             cat /tmp/connected-android16-test.log
             cp -R "$PROJECT_DIR/app/build/outputs/androidTest-results" /tmp/android16-test-results/ 2>/dev/null || true
             cp -R "$PROJECT_DIR/app/build/reports/androidTests" /tmp/android16-test-results/ 2>/dev/null || true
-            UNIVERSAL="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*universal.apk' -print -quit)"
-            test -n "$UNIVERSAL"
-            adb install -r "$UNIVERSAL"
+            test -n "$SIGNED_X86_64_APK"
+            adb uninstall com.saeiddvc.vpn >/dev/null 2>&1 || true
+            adb install "$SIGNED_X86_64_APK"
             adb shell pm path com.saeiddvc.vpn | grep -q '^package:'
+            test "$(apkanalyzer manifest version-name "$SIGNED_X86_64_APK")" = "4.3.2"
             adb logcat -c || true
             bash "$PROJECT_DIR/scripts/android16_cold_launch_test.sh"
             sleep 3
@@ -253,25 +300,30 @@ jobs:
             grep -q "Vara" /tmp/vara-ui.xml
             BASH
 
-      - name: Prepare RC4 deliverable
+      - name: Prepare RC5 deliverable
         if: success()
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release-files
-          ARM64="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*arm64-v8a.apk' -print -quit)"
-          UNIVERSAL="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*universal.apk' -print -quit)"
-          test -n "$ARM64"
-          test -n "$UNIVERSAL"
-          cp "$ARM64" release-files/Vara-Smart-VPN-4.3.1-RC4-ARM64.apk
-          cp "$UNIVERSAL" release-files/Vara-Smart-VPN-4.3.1-RC4-Universal.apk
+          test -n "$SIGNED_ARM64_APK"
+          test -n "$SIGNED_UNIVERSAL_APK"
+          cp "$SIGNED_ARM64_APK" release-files/Vara-Smart-VPN-4.3.2-RC5-ARM64.apk
+          cp "$SIGNED_UNIVERSAL_APK" release-files/Vara-Smart-VPN-4.3.2-RC5-Universal.apk
+          {
+            echo "applicationId=com.saeiddvc.vpn"
+            echo "versionName=4.3.2"
+            echo "versionCode=$VARA_VERSION_CODE"
+            echo "signingCertSha256=$(cat /tmp/vara-signing-cert-sha256.txt)"
+            echo "updatePolicy=same-package + stable-signing-certificate + monotonically-increasing-versionCode"
+          } > release-files/UPDATE-CHANNEL.txt
           sha256sum release-files/*.apk | tee release-files/SHA256SUMS.txt
 
-      - name: Upload tested RC4
+      - name: Upload tested RC5
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Vara-Smart-VPN-4.3.1-RC4-Android16-tested
+          name: Vara-Smart-VPN-4.3.2-RC5-UpdateCompatible
           path: release-files/*
           if-no-files-found: error
           retention-days: 14
@@ -280,7 +332,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Vara-Smart-VPN-RC4-failure-diagnostics
+          name: Vara-Smart-VPN-RC5-failure-diagnostics
           path: |
             /tmp/runtime-deps.txt
             /tmp/dex-packages.txt
@@ -295,6 +347,8 @@ jobs:
             /tmp/vara-ui.xml
             /tmp/android16-test-results/**
             ${{ env.PROJECT_DIR }}/app/build/outputs/apk/playstore/debug/*.apk
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/playstore/release/*.apk
+            /tmp/vara-signing-cert-sha256.txt
             ${{ env.PROJECT_DIR }}/app/build/reports/**
           if-no-files-found: ignore
           retention-days: 7
