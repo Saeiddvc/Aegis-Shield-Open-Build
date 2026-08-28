@@ -228,9 +228,9 @@ jobs:
             base="${base%-unsigned}"
             aligned="$RUNNER_TEMP/vara-signed/${base}-aligned.apk"
             signed="$RUNNER_TEMP/vara-signed/${base}-signed.apk"
-            zipalign -f -p 4 "$apk" "$aligned"
+            "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$apk" "$aligned"
             apksigner sign               --ks "$KEYSTORE"               --ks-type PKCS12               --ks-key-alias "$VARA_SIGN_ALIAS"               --ks-pass "pass:$VARA_SIGN_STORE_PASS"               --key-pass "pass:$VARA_SIGN_KEY_PASS"               --out "$signed"               "$aligned"
-            apksigner verify --verbose --print-certs "$signed"
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$signed"
             rm -f "$aligned"
           done < <(find app/build/outputs/apk/playstore/release -type f -name '*.apk' | sort)
 
