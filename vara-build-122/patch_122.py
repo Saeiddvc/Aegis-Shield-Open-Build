@@ -19,13 +19,23 @@ for marker in [
     if marker not in s:
         raise SystemExit(f"missing validated 0.11.11 prerequisite: {marker}")
 
-# 0.11.12: protected WebViews must not hand web-triggered downloads to Android.
-# Install a no-op DownloadListener on each protected WebView itself. Local WebView
-# variable names are intentionally allowed to repeat across different methods/scopes;
-# coverage is therefore validated by structurally matched chooser instances and
-# insertion positions rather than by receiver-name uniqueness.
-if '.setDownloadListener(' in s:
-    raise SystemExit('patch failed [download prerequisite]: unexpected pre-existing DownloadListener')
+# 0.11.12: every protected WebView must refuse web-triggered downloads.
+# Earlier releases already contain one richer Secure Browser DownloadListener that
+# logs and surfaces a blocked download. Preserve it as a validated prerequisite and
+# add an explicit fail-closed listener at each protected WebChromeClient boundary.
+# Local WebView variable names may repeat across methods/scopes, so coverage is
+# validated structurally by chooser instances and insertion positions rather than
+# receiver-name uniqueness.
+existing_listener_pattern = re.compile(
+    r'\b[A-Za-z_][A-Za-z0-9_]*\.setDownloadListener\s*\('
+)
+preexisting_listeners = list(existing_listener_pattern.finditer(s))
+if len(preexisting_listeners) != 1:
+    raise SystemExit(
+        f'patch failed [download prerequisite]: expected 1 validated pre-existing DownloadListener, found {len(preexisting_listeners)}'
+    )
+if 'Downloads are disabled in protected sessions' not in s:
+    raise SystemExit('patch failed [download prerequisite]: existing protected-download policy marker missing')
 
 chooser = re.compile(
     r'@Override public boolean onShowFileChooser\(WebView webView, ValueCallback<Uri\[\]> filePathCallback, WebChromeClient\.FileChooserParams fileChooserParams\) \{\s*'
@@ -88,11 +98,15 @@ for pos, guard, _receiver, _ordinal in sorted(insertions, reverse=True):
     s = s[:pos] + guard + s[pos:]
 
 listener_pattern = re.compile(
-    r'\b[A-Za-z_][A-Za-z0-9_]*\.setDownloadListener\(\(url, userAgent, contentDisposition, mimeType, contentLength\) -> \{ \}\);'
+    r'\b[A-Za-z_][A-Za-z0-9_]*\.setDownloadListener\s*\('
 )
 listeners = list(listener_pattern.finditer(s))
-if len(listeners) != expected:
-    raise SystemExit(f'patch failed [download coverage]: expected {expected} listeners, found {len(listeners)}')
+expected_total = expected + len(preexisting_listeners)
+if len(listeners) != expected_total:
+    raise SystemExit(
+        f'patch failed [download coverage]: expected {expected_total} total listeners '
+        f'({len(preexisting_listeners)} preserved + {expected} protected guards), found {len(listeners)}'
+    )
 
 compat_anchor = '        content.addView(fileChooserCard);'
 if s.count(compat_anchor) != 1:
@@ -122,4 +136,7 @@ for marker in [
         raise SystemExit(f'missing expected marker after patch: {marker}')
 
 receivers = [item[2] for item in insertions]
-print(f'VARA Security 0.11.12 protected-download hardening validated across {expected} protected WebViews: {", ".join(receivers)}')
+print(
+    f'VARA Security 0.11.12 protected-download hardening validated across {expected} protected WebViews: '
+    f'{", ".join(receivers)}; preserved {len(preexisting_listeners)} prior protected-download listener'
+)
