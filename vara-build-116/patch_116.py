@@ -22,34 +22,29 @@ for marker in [
         raise SystemExit(f"missing validated 0.11.5 prerequisite: {marker}")
 
 # 0.11.6: explicitly erase in-WebView navigation and form residue before destroying a
-# protected session. Save-form-data is already disabled, but clearing the live history/form
-# state is a defense-in-depth guarantee for user-driven exit, background fail-close,
-# security failure and lifetime expiry paths that converge on clearProtectedSessionState().
-# Match the semantic statement rather than indentation so this patch remains stable after
-# formatting-only changes in earlier patches.
-pattern = re.compile(r'(?P<indent>^[ \t]*)web\.clearSslPreferences\(\);', re.MULTILINE)
+# protected session. Match the semantic statement regardless of indentation or whether
+# an earlier hardening patch placed it inside an inline try/catch statement.
+pattern = re.compile(r'web\.clearSslPreferences\(\);')
 matches = list(pattern.finditer(s))
 if not matches:
     raise SystemExit("patch failed [protected residue cleanup anchor]: clearSslPreferences not found")
-if len(matches) > 1:
-    # Prefer the occurrence inside clearProtectedSessionState().
-    method_pos = s.find('clearProtectedSessionState()')
-    chosen = None
-    if method_pos >= 0:
-        for m in matches:
-            if m.start() > method_pos and m.start() - method_pos < 5000:
-                chosen = m
-                break
-    if chosen is None:
-        raise SystemExit(f"patch failed [protected residue cleanup anchor]: ambiguous count {len(matches)}")
-else:
+
+# Prefer the occurrence within clearProtectedSessionState(). This keeps the cleanup on
+# the common close path used by user exit, background fail-close, security failure and
+# session expiry.
+method_pos = s.find('clearProtectedSessionState()')
+chosen = None
+if method_pos >= 0:
+    for m in matches:
+        if m.start() > method_pos and m.start() - method_pos < 8000:
+            chosen = m
+            break
+if chosen is None and len(matches) == 1:
     chosen = matches[0]
-indent = chosen.group('indent')
-cleanup = (
-    f"{indent}web.clearSslPreferences();\n"
-    f"{indent}web.clearHistory();\n"
-    f"{indent}web.clearFormData();"
-)
+if chosen is None:
+    raise SystemExit(f"patch failed [protected residue cleanup anchor]: ambiguous count {len(matches)}")
+
+cleanup = "web.clearSslPreferences(); web.clearHistory(); web.clearFormData();"
 s = s[:chosen.start()] + cleanup + s[chosen.end():]
 
 # Surface the cleanup contract in Compatibility so field testing can distinguish browser
