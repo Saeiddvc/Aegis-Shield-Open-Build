@@ -1,6 +1,6 @@
 name: Trigger Vara Smart VPN RC4
 
-# Trigger revision: rc5-stability-verifier-1
+# Trigger revision: rc5-subscription-import-1
 on:
   push:
     branches: [ main ]
