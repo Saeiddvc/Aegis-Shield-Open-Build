@@ -21,15 +21,26 @@ for marker in [
         raise SystemExit(f"missing validated 0.11.7 prerequisite: {marker}")
 
 # 0.11.8: explicitly reject HTTP subresources inside every protected WebView.
-# Android 8+ is the project minimum, so MIXED_CONTENT_NEVER_ALLOW is uniformly available.
-anchor = '        ws.setDatabaseEnabled(false);'
-anchor_count = s.count(anchor)
-if anchor_count < 1:
+# Match the database hardening statement independent of indentation so both
+# protected WebView settings blocks are covered reliably.
+pattern = re.compile(r'(?m)^(?P<indent>[ \t]*)ws\.setDatabaseEnabled\(false\);[ \t]*$')
+matches = list(pattern.finditer(s))
+if not matches:
     raise SystemExit("patch failed [mixed-content anchor]: no protected WebView settings blocks found")
 
-hardening = '''        ws.setDatabaseEnabled(false);\n        ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);'''
-s = s.replace(anchor, hardening)
-if s.count('setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW)') != anchor_count:
+expected_blocks = len(matches)
+
+def add_mixed_content(match):
+    indent = match.group('indent')
+    return (
+        f"{indent}ws.setDatabaseEnabled(false);\n"
+        f"{indent}ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);"
+    )
+
+s, changed = pattern.subn(add_mixed_content, s)
+if changed != expected_blocks:
+    raise SystemExit(f"patch failed [mixed-content mutation]: expected {expected_blocks}, changed {changed}")
+if s.count('setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW)') != expected_blocks:
     raise SystemExit("patch failed [mixed-content coverage]: not all protected settings blocks were hardened")
 
 compat_anchor = '        content.addView(protectedDataSurfaceCard);'
@@ -60,4 +71,4 @@ for marker in [
     if marker not in s:
         raise SystemExit(f"missing expected marker after patch: {marker}")
 
-print(f"VARA Security 0.11.8 mixed-content hardening patch applied to {anchor_count} protected settings blocks")
+print(f"VARA Security 0.11.8 mixed-content hardening patch applied to {expected_blocks} protected settings blocks")
