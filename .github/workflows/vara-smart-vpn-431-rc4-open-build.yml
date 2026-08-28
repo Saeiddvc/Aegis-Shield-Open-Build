@@ -1,4 +1,5 @@
 name: Vara Smart VPN 4.3.2 RC5 Open Build
+# Update baseline signing certificate: D3:CD:CB:AA
 
 on:
   push:
