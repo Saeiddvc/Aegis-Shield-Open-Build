@@ -20,14 +20,17 @@ for marker in [
     if marker not in s:
         raise SystemExit(f"missing validated 0.11.7 prerequisite: {marker}")
 
-# 0.11.8: explicitly reject HTTP subresources inside HTTPS protected sessions.
+# 0.11.8: explicitly reject HTTP subresources inside every protected WebView.
 # Android 8+ is the project minimum, so MIXED_CONTENT_NEVER_ALLOW is uniformly available.
 anchor = '        ws.setDatabaseEnabled(false);'
-if s.count(anchor) != 1:
-    raise SystemExit(f"patch failed [mixed-content anchor]: found {s.count(anchor)}")
+anchor_count = s.count(anchor)
+if anchor_count < 1:
+    raise SystemExit("patch failed [mixed-content anchor]: no protected WebView settings blocks found")
 
 hardening = '''        ws.setDatabaseEnabled(false);\n        ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);'''
-s = s.replace(anchor, hardening, 1)
+s = s.replace(anchor, hardening)
+if s.count('setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW)') != anchor_count:
+    raise SystemExit("patch failed [mixed-content coverage]: not all protected settings blocks were hardened")
 
 compat_anchor = '        content.addView(protectedDataSurfaceCard);'
 if s.count(compat_anchor) != 1:
@@ -57,4 +60,4 @@ for marker in [
     if marker not in s:
         raise SystemExit(f"missing expected marker after patch: {marker}")
 
-print("VARA Security 0.11.8 mixed-content hardening patch applied")
+print(f"VARA Security 0.11.8 mixed-content hardening patch applied to {anchor_count} protected settings blocks")
