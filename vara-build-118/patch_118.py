@@ -21,27 +21,45 @@ for marker in [
         raise SystemExit(f"missing validated 0.11.7 prerequisite: {marker}")
 
 # 0.11.8: explicitly reject HTTP subresources inside every protected WebView.
-# Match the database hardening statement independent of indentation so both
-# protected WebView settings blocks are covered reliably.
+# Match database-hardening statements independent of indentation. Some older
+# source paths may already carry MIXED_CONTENT_NEVER_ALLOW, so validation is
+# block-based rather than relying on a global occurrence count.
 pattern = re.compile(r'(?m)^(?P<indent>[ \t]*)ws\.setDatabaseEnabled\(false\);[ \t]*$')
 matches = list(pattern.finditer(s))
 if not matches:
     raise SystemExit("patch failed [mixed-content anchor]: no protected WebView settings blocks found")
 
 expected_blocks = len(matches)
+preexisting = s.count('setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW)')
 
 def add_mixed_content(match):
     indent = match.group('indent')
+    tail = s[match.end():]
+    next_line = tail.split('\n', 2)[1] if tail.startswith('\n') and '\n' in tail[1:] else ''
+    if next_line.strip() == 'ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);':
+        return match.group(0)
     return (
         f"{indent}ws.setDatabaseEnabled(false);\n"
         f"{indent}ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);"
     )
 
 s, changed = pattern.subn(add_mixed_content, s)
-if changed != expected_blocks:
-    raise SystemExit(f"patch failed [mixed-content mutation]: expected {expected_blocks}, changed {changed}")
-if s.count('setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW)') != expected_blocks:
-    raise SystemExit("patch failed [mixed-content coverage]: not all protected settings blocks were hardened")
+
+paired_pattern = re.compile(
+    r'(?m)^[ \t]*ws\.setDatabaseEnabled\(false\);[ \t]*\n'
+    r'[ \t]*ws\.setMixedContentMode\(WebSettings\.MIXED_CONTENT_NEVER_ALLOW\);[ \t]*$'
+)
+paired_blocks = len(list(paired_pattern.finditer(s)))
+if paired_blocks != expected_blocks:
+    raise SystemExit(
+        f"patch failed [mixed-content coverage]: expected {expected_blocks} protected blocks, "
+        f"validated {paired_blocks}"
+    )
+final_mixed = s.count('setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW)')
+if final_mixed < expected_blocks:
+    raise SystemExit(
+        f"patch failed [mixed-content mutation]: expected at least {expected_blocks}, found {final_mixed}"
+    )
 
 compat_anchor = '        content.addView(protectedDataSurfaceCard);'
 if s.count(compat_anchor) != 1:
@@ -71,4 +89,7 @@ for marker in [
     if marker not in s:
         raise SystemExit(f"missing expected marker after patch: {marker}")
 
-print(f"VARA Security 0.11.8 mixed-content hardening patch applied to {expected_blocks} protected settings blocks")
+print(
+    f"VARA Security 0.11.8 mixed-content hardening validated across {expected_blocks} protected settings blocks "
+    f"(preexisting policies: {preexisting}, final policies: {final_mixed})"
+)
