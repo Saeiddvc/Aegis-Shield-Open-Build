@@ -50,10 +50,16 @@ s, changed = anchor.subn(add_file_chooser_guard, s)
 if changed != expected:
     raise SystemExit(f'patch failed [file chooser mutation]: expected {expected}, changed {changed}')
 
-guards = s.count('onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, WebChromeClient.FileChooserParams fileChooserParams)')
-cancels = s.count('filePathCallback.onReceiveValue(null);')
-if guards != expected or cancels != expected:
-    raise SystemExit(f'patch failed [file chooser coverage]: expected {expected}, guards={guards}, cancels={cancels}')
+# Validate the exact fail-closed guard bodies we inserted. Older VARA patches
+# already contain an independent filePathCallback cancellation path, so a
+# global count of onReceiveValue(null) is intentionally not used here.
+guard_body = re.compile(
+    r'@Override public boolean onShowFileChooser\(WebView webView, ValueCallback<Uri\[\]> filePathCallback, WebChromeClient\.FileChooserParams fileChooserParams\) \{\s*'
+    r'filePathCallback\.onReceiveValue\(null\);\s*return true;\s*\}'
+)
+guards = len(guard_body.findall(s))
+if guards != expected:
+    raise SystemExit(f'patch failed [file chooser coverage]: expected {expected}, validated_guards={guards}')
 
 compat_anchor = '        content.addView(webPermissionCard);'
 if s.count(compat_anchor) != 1:
