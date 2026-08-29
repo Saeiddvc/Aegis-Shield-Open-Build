@@ -17,51 +17,142 @@ for marker in [
     'onPermissionRequest(PermissionRequest request)',
     'request.deny()',
     'onShowFileChooser(WebView webView, ValueCallback<Uri[]>',
+    'onSafeBrowsingHit',
 ]:
     if marker not in s:
         raise SystemExit(f"missing validated 0.11.13 prerequisite: {marker}")
 
-# 0.11.14: protected SafePay / Secure Browser WebViews reject native HTTP-auth
-# and client-certificate prompts. These browser-level credential surfaces bypass
-# normal HTML form controls and can expose credentials or client identity. Protected
-# mode remains HTTPS-only and consumer-payment oriented, so fail closed here.
+# 0.11.14: protected SafePay / Secure Browser WebViews reject browser-native
+# HTTP Basic/Digest and client-certificate prompts. These callbacks belong to
+# WebViewClient (not WebChromeClient), so resolve the protected receiver from the
+# already validated file-chooser guard and patch that receiver's nearest WebViewClient.
 chooser = re.compile(
     r'@Override public boolean onShowFileChooser\(WebView webView, ValueCallback<Uri\[\]> filePathCallback, WebChromeClient\.FileChooserParams fileChooserParams\) \{\s*'
     r'filePathCallback\.onReceiveValue\(null\);\s*return true;\s*\}'
 )
-expected = len(list(chooser.finditer(s)))
-if expected < 1:
+chooser_matches = list(chooser.finditer(s))
+if not chooser_matches:
     raise SystemExit('patch failed [auth prompt anchor]: no protected file-chooser guards found')
+expected = len(chooser_matches)
 
-perm = re.compile(
-    r'@Override public void onPermissionRequest\(PermissionRequest request\) \{\s*request\.deny\(\);\s*\}'
-)
-perm_matches = list(perm.finditer(s))
-if len(perm_matches) != expected:
+chrome_start = re.compile(r'(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\.setWebChromeClient\(new WebChromeClient\(\)\s*\{')
+
+# Java-aware enough for anonymous client blocks: skip strings, chars and comments
+# while matching braces so method bodies and literal text cannot terminate early.
+def matching_brace(text, open_pos):
+    depth = 0
+    i = open_pos
+    state = 'code'
+    while i < len(text):
+        c = text[i]
+        n = text[i + 1] if i + 1 < len(text) else ''
+        if state == 'code':
+            if c == '"':
+                state = 'string'
+            elif c == "'":
+                state = 'char'
+            elif c == '/' and n == '/':
+                state = 'line_comment'; i += 1
+            elif c == '/' and n == '*':
+                state = 'block_comment'; i += 1
+            elif c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth == 0:
+                    return i
+        elif state == 'string':
+            if c == '\\':
+                i += 1
+            elif c == '"':
+                state = 'code'
+        elif state == 'char':
+            if c == '\\':
+                i += 1
+            elif c == "'":
+                state = 'code'
+        elif state == 'line_comment':
+            if c == '\n':
+                state = 'code'
+        elif state == 'block_comment':
+            if c == '*' and n == '/':
+                state = 'code'; i += 1
+        i += 1
+    raise SystemExit('patch failed [auth prompt parser]: unterminated WebViewClient block')
+
+insertions = []
+covered_existing = 0
+resolved = []
+
+for ordinal, cm in enumerate(chooser_matches, start=1):
+    chrome_candidates = list(chrome_start.finditer(s, 0, cm.start()))
+    if not chrome_candidates:
+        raise SystemExit(f'patch failed [auth prompt client {ordinal}]: protected WebChromeClient not found')
+    chrome = chrome_candidates[-1]
+    if cm.start() - chrome.start() > 12000:
+        raise SystemExit(f'patch failed [auth prompt client {ordinal}]: chooser too far from WebChromeClient')
+    receiver = chrome.group('receiver')
+
+    view_client_start = re.compile(
+        rf'\b{re.escape(receiver)}\.setWebViewClient\(new WebViewClient\(\)\s*\{{'
+    )
+    view_candidates = list(view_client_start.finditer(s, 0, chrome.start()))
+    if not view_candidates:
+        raise SystemExit(
+            f'patch failed [auth prompt WebViewClient {ordinal}]: no preceding WebViewClient for {receiver}'
+        )
+    vc = view_candidates[-1]
+    if chrome.start() - vc.start() > 20000:
+        raise SystemExit(
+            f'patch failed [auth prompt WebViewClient {ordinal}]: client anchor too far from {receiver}'
+        )
+    open_pos = s.find('{', vc.start(), vc.end())
+    close_pos = matching_brace(s, open_pos)
+    block = s[vc.start():close_pos + 1]
+
+    has_http = 'onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler, String host, String realm)' in block
+    has_cert = 'onReceivedClientCertRequest(WebView view, android.webkit.ClientCertRequest request)' in block
+    if has_http and has_cert:
+        covered_existing += 1
+        resolved.append(receiver)
+        continue
+    if has_http != has_cert:
+        raise SystemExit(
+            f'patch failed [auth prompt partial guard {ordinal}]: inconsistent existing guard for {receiver}'
+        )
+
+    line_start = s.rfind('\n', 0, close_pos) + 1
+    close_indent = s[line_start:close_pos]
+    method_indent = close_indent + '    '
+    guard = (
+        f"\n{method_indent}@Override public void onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler, String host, String realm) {{\n"
+        f"{method_indent}    handler.cancel();\n"
+        f"{method_indent}}}\n"
+        f"{method_indent}@Override public void onReceivedClientCertRequest(WebView view, android.webkit.ClientCertRequest request) {{\n"
+        f"{method_indent}    request.cancel();\n"
+        f"{method_indent}}}\n{close_indent}"
+    )
+    insertions.append((close_pos, guard, receiver))
+    resolved.append(receiver)
+
+positions = [p for p, _g, _r in insertions]
+if len(set(positions)) != len(positions):
     raise SystemExit(
-        f'patch failed [auth prompt coverage]: expected {expected} protected permission guards, found {len(perm_matches)}'
+        f'patch failed [auth prompt mutation]: duplicate WebViewClient insertion positions ({len(set(positions))}/{len(positions)})'
+    )
+if covered_existing + len(insertions) != expected:
+    raise SystemExit(
+        f'patch failed [auth prompt mutation]: expected {expected}, covered {covered_existing} + {len(insertions)}'
     )
 
-if 'onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler' in s or \
-   'onReceivedClientCertRequest(WebView view, android.webkit.ClientCertRequest request)' in s:
-    raise SystemExit('patch failed [auth prompt mutation]: protected auth prompt guard already present')
-
-replacement = '''@Override public void onPermissionRequest(PermissionRequest request) { request.deny(); }
-            @Override public void onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler, String host, String realm) {
-                handler.cancel();
-            }
-            @Override public void onReceivedClientCertRequest(WebView view, android.webkit.ClientCertRequest request) {
-                request.cancel();
-            }'''
-s, changed = perm.subn(replacement, s)
-if changed != expected:
-    raise SystemExit(f'patch failed [auth prompt mutation]: expected {expected}, changed {changed}')
+for pos, guard, _receiver in sorted(insertions, reverse=True):
+    s = s[:pos] + guard + s[pos:]
 
 http_count = s.count('onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler, String host, String realm)')
 cert_count = s.count('onReceivedClientCertRequest(WebView view, android.webkit.ClientCertRequest request)')
-if http_count != expected or cert_count != expected:
+if http_count < expected or cert_count < expected:
     raise SystemExit(
-        f'patch failed [auth prompt verify]: HTTP auth={http_count}, client cert={cert_count}, expected={expected}'
+        f'patch failed [auth prompt verify]: HTTP auth={http_count}, client cert={cert_count}, expected at least {expected}'
     )
 if s.count('handler.cancel();') < expected or s.count('request.cancel();') < expected:
     raise SystemExit('patch failed [auth prompt verify]: cancel action missing')
@@ -97,5 +188,6 @@ for marker in [
         raise SystemExit(f'missing expected marker after patch: {marker}')
 
 print(
-    f'VARA Security 0.11.14 protected authentication-prompt hardening validated across {expected} protected WebViews'
+    f'VARA Security 0.11.14 protected authentication-prompt hardening validated across {expected} protected WebViews: '
+    f'{", ".join(resolved)}; preserved {covered_existing} existing guards, added {len(insertions)} guards'
 )
