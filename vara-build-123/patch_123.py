@@ -20,8 +20,9 @@ for marker in [
         raise SystemExit(f"missing validated 0.11.12 prerequisite: {marker}")
 
 # 0.11.13: opt protected SafePay / Secure Browser WebViews out of Android Autofill
-# and view-state persistence at WebView initialization time. Anchor each mutation to
-# the nearest WebChromeClient receiver containing a validated fail-closed file chooser.
+# and view-state persistence at WebView initialization time. The generated source
+# can already contain the Autofill constant for audit/compatibility purposes, so
+# do not treat the constant's mere presence as evidence that WebViews are hardened.
 chooser = re.compile(
     r'@Override public boolean onShowFileChooser\(WebView webView, ValueCallback<Uri\[\]> filePathCallback, WebChromeClient\.FileChooserParams fileChooserParams\) \{\s*'
     r'filePathCallback\.onReceiveValue\(null\);\s*return true;\s*\}'
@@ -31,11 +32,11 @@ if not chooser_matches:
     raise SystemExit('patch failed [autofill anchor]: no protected file-chooser guards found')
 expected = len(chooser_matches)
 
-if 'IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS' in s:
-    raise SystemExit('patch failed [autofill prerequisite]: protected autofill hardening already present')
-
 client_start = re.compile(r'(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\.setWebChromeClient\(new WebChromeClient\(\)\s*\{')
 insertions = []
+covered_existing = 0
+receivers = []
+
 for ordinal, cm in enumerate(chooser_matches, start=1):
     starts = list(client_start.finditer(s, 0, cm.start()))
     if not starts:
@@ -43,9 +44,33 @@ for ordinal, cm in enumerate(chooser_matches, start=1):
     st = starts[-1]
     if cm.start() - st.start() > 12000:
         raise SystemExit(f'patch failed [autofill client {ordinal}]: protected chooser too far from client anchor')
+
     receiver = st.group('receiver')
+    receivers.append(receiver)
     line_start = s.rfind('\n', 0, st.start()) + 1
     indent = s[line_start:st.start()]
+
+    # Check only the initialization neighborhood of this protected WebView. This
+    # distinguishes a real receiver-level hardening call from unrelated use of
+    # IMPORTANT_FOR_AUTOFILL_* in audit or compatibility code.
+    neighborhood = s[max(0, line_start - 1600):st.start()]
+    has_autofill_guard = re.search(
+        rf'\b{re.escape(receiver)}\.setImportantForAutofill\s*\(\s*View\.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS\s*\)',
+        neighborhood,
+    ) is not None
+    has_save_guard = re.search(
+        rf'\b{re.escape(receiver)}\.setSaveEnabled\s*\(\s*false\s*\)',
+        neighborhood,
+    ) is not None
+
+    if has_autofill_guard and has_save_guard:
+        covered_existing += 1
+        continue
+    if has_autofill_guard != has_save_guard:
+        raise SystemExit(
+            f'patch failed [autofill partial guard {ordinal}]: inconsistent pre-existing privacy guard for {receiver}'
+        )
+
     guard = (
         f"{indent}{receiver}.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);\n"
         f"{indent}{receiver}.setSaveEnabled(false);\n"
@@ -53,19 +78,49 @@ for ordinal, cm in enumerate(chooser_matches, start=1):
     insertions.append((line_start, guard, receiver))
 
 positions = [item[0] for item in insertions]
-if len(insertions) != expected or len(set(positions)) != expected:
+if len(set(positions)) != len(positions):
     raise SystemExit(
-        f'patch failed [autofill mutation]: expected {expected} unique protected WebView insertion points, '
-        f'found {len(insertions)} / {len(set(positions))}'
+        f'patch failed [autofill mutation]: duplicate insertion positions detected '
+        f'({len(set(positions))}/{len(positions)})'
+    )
+if covered_existing + len(insertions) != expected:
+    raise SystemExit(
+        f'patch failed [autofill mutation]: expected {expected} protected WebViews, '
+        f'covered {covered_existing} existing + {len(insertions)} new'
     )
 
 for pos, guard, _receiver in sorted(insertions, reverse=True):
     s = s[:pos] + guard + s[pos:]
 
-if s.count('setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS)') != expected:
-    raise SystemExit('patch failed [autofill coverage]: incomplete autofill exclusion coverage')
-if s.count('setSaveEnabled(false)') < expected:
-    raise SystemExit('patch failed [autofill coverage]: incomplete protected view-state suppression')
+# Verify every protected WebChromeClient now has both receiver-level guards in its
+# initialization neighborhood. Re-resolve positions after insertion because offsets moved.
+final_chooser_matches = list(chooser.finditer(s))
+if len(final_chooser_matches) != expected:
+    raise SystemExit('patch failed [autofill coverage]: protected chooser count changed unexpectedly')
+
+verified = 0
+for ordinal, cm in enumerate(final_chooser_matches, start=1):
+    starts = list(client_start.finditer(s, 0, cm.start()))
+    if not starts:
+        raise SystemExit(f'patch failed [autofill verify {ordinal}]: WebChromeClient missing')
+    st = starts[-1]
+    receiver = st.group('receiver')
+    line_start = s.rfind('\n', 0, st.start()) + 1
+    neighborhood = s[max(0, line_start - 1600):st.start()]
+    has_autofill_guard = re.search(
+        rf'\b{re.escape(receiver)}\.setImportantForAutofill\s*\(\s*View\.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS\s*\)',
+        neighborhood,
+    ) is not None
+    has_save_guard = re.search(
+        rf'\b{re.escape(receiver)}\.setSaveEnabled\s*\(\s*false\s*\)',
+        neighborhood,
+    ) is not None
+    if not (has_autofill_guard and has_save_guard):
+        raise SystemExit(f'patch failed [autofill verify {ordinal}]: privacy guard missing for {receiver}')
+    verified += 1
+
+if verified != expected:
+    raise SystemExit(f'patch failed [autofill coverage]: expected {expected}, verified {verified}')
 
 compat_anchor = '        content.addView(downloadCard);'
 if s.count(compat_anchor) != 1:
@@ -87,15 +142,15 @@ if n1 != 1 or n2 != 1:
 gradle.write_text(g, encoding='utf-8')
 
 for marker in [
-    'IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS',
+    'setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS)',
+    'setSaveEnabled(false)',
     'Protected form privacy',
     '0.11.13 ALPHA',
 ]:
     if marker not in s:
         raise SystemExit(f'missing expected marker after patch: {marker}')
 
-receivers = [item[2] for item in insertions]
 print(
     f'VARA Security 0.11.13 protected-form privacy hardening validated across {expected} protected WebViews: '
-    f'{", ".join(receivers)}'
+    f'{", ".join(receivers)}; preserved {covered_existing} existing guards, added {len(insertions)} guards'
 )
