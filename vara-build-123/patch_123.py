@@ -19,9 +19,9 @@ for marker in [
     if marker not in s:
         raise SystemExit(f"missing validated 0.11.12 prerequisite: {marker}")
 
-# 0.11.13: protected SafePay / Secure Browser WebViews must opt out of Android Autofill
-# and view-state persistence. This reduces accidental credential/form persistence and
-# prevents Autofill providers from learning protected-session form contents.
+# 0.11.13: opt protected SafePay / Secure Browser WebViews out of Android Autofill
+# and view-state persistence at WebView initialization time. Anchor each mutation to
+# the nearest WebChromeClient receiver containing a validated fail-closed file chooser.
 chooser = re.compile(
     r'@Override public boolean onShowFileChooser\(WebView webView, ValueCallback<Uri\[\]> filePathCallback, WebChromeClient\.FileChooserParams fileChooserParams\) \{\s*'
     r'filePathCallback\.onReceiveValue\(null\);\s*return true;\s*\}'
@@ -36,47 +36,21 @@ if 'IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS' in s:
 
 client_start = re.compile(r'(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\.setWebChromeClient\(new WebChromeClient\(\)\s*\{')
 insertions = []
-
 for ordinal, cm in enumerate(chooser_matches, start=1):
     starts = list(client_start.finditer(s, 0, cm.start()))
     if not starts:
-        raise SystemExit(f'patch failed [autofill client {ordinal}]: no enclosing WebChromeClient start found')
+        raise SystemExit(f'patch failed [autofill client {ordinal}]: no preceding WebChromeClient found')
     st = starts[-1]
+    if cm.start() - st.start() > 12000:
+        raise SystemExit(f'patch failed [autofill client {ordinal}]: protected chooser too far from client anchor')
     receiver = st.group('receiver')
-    brace_open = s.find('{', st.start(), st.end())
-    if brace_open < 0:
-        raise SystemExit(f'patch failed [autofill client {ordinal}]: opening brace not found')
-
-    depth = 0
-    i = brace_open
-    close_brace = -1
-    while i < len(s):
-        ch = s[i]
-        if ch == '{':
-            depth += 1
-        elif ch == '}':
-            depth -= 1
-            if depth == 0:
-                close_brace = i
-                break
-        i += 1
-    if close_brace < 0 or not (st.start() < cm.start() < close_brace):
-        raise SystemExit(f'patch failed [autofill client {ordinal}]: chooser not enclosed for {receiver}')
-
-    j = close_brace + 1
-    while j < len(s) and s[j].isspace():
-        j += 1
-    if s[j:j+2] != ');':
-        raise SystemExit(f'patch failed [autofill client {ordinal}]: expected WebChromeClient call terminator for {receiver}')
-    statement_end = j + 2
-
     line_start = s.rfind('\n', 0, st.start()) + 1
     indent = s[line_start:st.start()]
     guard = (
-        f"\n{indent}{receiver}.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);"
-        f"\n{indent}{receiver}.setSaveEnabled(false);"
+        f"{indent}{receiver}.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);\n"
+        f"{indent}{receiver}.setSaveEnabled(false);\n"
     )
-    insertions.append((statement_end, guard, receiver, ordinal))
+    insertions.append((line_start, guard, receiver))
 
 positions = [item[0] for item in insertions]
 if len(insertions) != expected or len(set(positions)) != expected:
@@ -85,7 +59,7 @@ if len(insertions) != expected or len(set(positions)) != expected:
         f'found {len(insertions)} / {len(set(positions))}'
     )
 
-for pos, guard, _receiver, _ordinal in sorted(insertions, reverse=True):
+for pos, guard, _receiver in sorted(insertions, reverse=True):
     s = s[:pos] + guard + s[pos:]
 
 if s.count('setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS)') != expected:
