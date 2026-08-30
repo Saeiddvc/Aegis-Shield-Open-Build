@@ -1,0 +1,127 @@
+name: Vara Smart VPN Relevant Source Bundle
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/vara-source-bundle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout public repo
+        uses: actions/checkout@v4
+
+      - name: Validate private-source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+
+      - name: Checkout private Vara source
+        uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          ref: vara-vpn-4.3.1-rebrand-fix
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare latest generated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fontconfig fonts-roboto
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          PROJECT_DIR="$GITHUB_WORKSPACE/private-source/$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          rm -rf "$PROJECT_DIR/ci" "$PROJECT_DIR/.github/support"
+          mkdir -p "$PROJECT_DIR/.github"
+          cp -a "$GITHUB_WORKSPACE/private-source/ci" "$PROJECT_DIR/ci"
+          cp -a "$GITHUB_WORKSPACE/private-source/.github/support" "$PROJECT_DIR/.github/support"
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$PWD" bash ci/apply-aegis-430.sh
+          mkdir -p app/src/main/res/font
+          REGULAR_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Regular' | head -n1)"
+          BOLD_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Bold' | head -n1)"
+          cp "$REGULAR_FONT" app/src/main/res/font/b_traffic_regular.ttf
+          cp "$BOLD_FONT" app/src/main/res/font/b_traffic_bold.ttf
+          python3 ci/vara-rebrand.py "$PWD"
+          python3 ci/vara-runtime-hotfix.py "$PWD"
+
+      - name: Collect Native Core Route Config Smart Connect files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          OUT="$GITHUB_WORKSPACE/source-bundle"
+          mkdir -p "$OUT/app/src/main/java/com/v2ray/ang"
+          for d in core service handler model fmt enums ui/main; do
+            if [ -d "app/src/main/java/com/v2ray/ang/$d" ]; then
+              mkdir -p "$OUT/app/src/main/java/com/v2ray/ang/$d"
+              cp -a "app/src/main/java/com/v2ray/ang/$d/." "$OUT/app/src/main/java/com/v2ray/ang/$d/"
+            fi
+          done
+          if [ -d app/src/main/cpp ]; then
+            mkdir -p "$OUT/app/src/main"
+            cp -a app/src/main/cpp "$OUT/app/src/main/"
+          fi
+          cp app/build.gradle.kts "$OUT/app/build.gradle.kts"
+          cp app/src/main/AndroidManifest.xml "$OUT/app/src/main/AndroidManifest.xml"
+
+          python3 - "$OUT" <<'PY'
+          from pathlib import Path
+          import re, sys
+          root = Path(sys.argv[1])
+          rows = []
+          for p in sorted(root.rglob('*')):
+              if not p.is_file() or p.suffix.lower() not in {'.kt','.java','.cpp','.cc','.c','.h','.hpp'}:
+                  continue
+              try:
+                  s = p.read_text(encoding='utf-8', errors='ignore')
+              except Exception:
+                  continue
+              rel = p.relative_to(root).as_posix()
+              cats = []
+              if re.search(r'\bexternal\s+fun\b|\bnative\b|JNI|CoreVpnService|CoreServiceManager|OpenVpn3EngineManager|Native|Bridge', s, re.I) or re.search(r'(core|service|native|bridge|vpn|jni)', p.name, re.I):
+                  cats.append('Native/Core')
+              if re.search(r'(Route|ServerConfig|ConfigType|Profile|Routing|Subscription|Mmkv|Fmt)', s, re.I) or re.search(r'(route|config|server|profile|fmt|subscription)', p.name, re.I):
+                  cats.append('Route/Config')
+              if re.search(r'(SmartConnect|smart connect|RealPing|Speedtest|latency|delay test|route shortlist|Bootstrap|testCurrentServerRealPing|healthFailure)', s, re.I) or re.search(r'(smart|ping|speedtest|testservice)', p.name, re.I):
+                  cats.append('Smart/Testing')
+              if cats:
+                  rows.append((rel, ', '.join(sorted(set(cats)))))
+          manifest = root / 'RELEVANT-FILES.txt'
+          manifest.write_text(
+              'Vara Smart VPN - Native/Core + Route/Config + Smart Connect/Testing\n'
+              'Generated from latest private branch vara-vpn-4.3.1-rebrand-fix\n\n' +
+              '\n'.join(f'{cats}: {rel}' for rel, cats in rows) + '\n',
+              encoding='utf-8'
+          )
+          print(f'Indexed {len(rows)} relevant source files')
+          PY
+
+          cd "$GITHUB_WORKSPACE"
+          zip -qr Vara-Smart-VPN-Relevant-Source.zip source-bundle
+          sha256sum Vara-Smart-VPN-Relevant-Source.zip > Vara-Smart-VPN-Relevant-Source.sha256
+
+      - name: Upload source bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vara-Smart-VPN-Relevant-Source
+          path: |
+            Vara-Smart-VPN-Relevant-Source.zip
+            Vara-Smart-VPN-Relevant-Source.sha256
+          if-no-files-found: error
+          retention-days: 14
