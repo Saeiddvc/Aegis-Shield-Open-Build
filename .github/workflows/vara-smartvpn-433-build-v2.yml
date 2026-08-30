@@ -1,0 +1,55 @@
+name: Vara Smart VPN 4.3.3 Public Build V2
+
+on:
+  push:
+    branches: [ vara-smartvpn-4.3.3 ]
+    paths:
+      - '.github/workflows/vara-smartvpn-433-build-v2.yml'
+      - '.build/vara433/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Restore Vara 4.3.3 source
+        shell: bash
+        run: |
+          mkdir -p vara-smartvpn-433
+          cat .build/vara433/part*.b64 | tr -d '\n\r ' | base64 -d > /tmp/vara433-src.tgz
+          tar -xzf /tmp/vara433-src.tgz -C vara-smartvpn-433
+          test -f vara-smartvpn-433/app/build.gradle.kts
+          test -f vara-smartvpn-433/app/src/main/AndroidManifest.xml
+      - name: Install Android 36 SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Build debug APK
+        working-directory: vara-smartvpn-433
+        run: gradle --no-daemon clean assembleDebug --stacktrace
+      - name: Package APK
+        run: |
+          cp vara-smartvpn-433/app/build/outputs/apk/debug/app-debug.apk Vara-Smart-VPN-4.3.3-ARM64-Debug.apk
+          sha256sum Vara-Smart-VPN-4.3.3-ARM64-Debug.apk > Vara-Smart-VPN-4.3.3-ARM64-Debug.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vara-Smart-VPN-4.3.3-ARM64-Debug
+          path: |
+            Vara-Smart-VPN-4.3.3-ARM64-Debug.apk
+            Vara-Smart-VPN-4.3.3-ARM64-Debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
