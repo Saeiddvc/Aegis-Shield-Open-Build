@@ -1,0 +1,302 @@
+name: Vara Smart VPN 4.3.2 RC5 Runtime Validation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/vara-smart-vpn-432-rc5-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
+      AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
+      NDK_VERSION: 29.0.14206865
+
+    steps:
+      - name: Checkout public build repo
+        uses: actions/checkout@v4
+
+      - name: Validate private-source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+
+      - name: Checkout private Vara source branch
+        uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          ref: vara-vpn-4.3.1-rebrand-fix
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: private-source/SaeidVPN-Android-3.2.0-final-source.zip
+
+      - name: Android SDK and NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;$NDK_VERSION" "cmake;3.22.1" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "cmdline-tools;latest"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq swig ninja-build fontconfig fonts-roboto
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          APK_ANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          ZIPALIGN="$ANDROID_HOME/build-tools/36.0.0/zipalign"
+          test -x "$APK_ANALYZER"
+          test -x "$APKSIGNER"
+          test -x "$ZIPALIGN"
+          echo "APK_ANALYZER=$APK_ANALYZER" >> "$GITHUB_ENV"
+          echo "APKSIGNER=$APKSIGNER" >> "$GITHUB_ENV"
+          echo "ZIPALIGN=$ZIPALIGN" >> "$GITHUB_ENV"
+
+      - name: Extract source and inject patch toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          PROJECT_DIR="$GITHUB_WORKSPACE/private-source/$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          rm -rf "$PROJECT_DIR/ci" "$PROJECT_DIR/.github/support"
+          mkdir -p "$PROJECT_DIR/.github"
+          cp -a "$GITHUB_WORKSPACE/private-source/ci" "$PROJECT_DIR/ci"
+          cp -a "$GITHUB_WORKSPACE/private-source/.github/support" "$PROJECT_DIR/.github/support"
+
+      - name: Apply Vara RC5 source fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$PWD" bash ci/apply-aegis-430.sh
+          mkdir -p app/src/main/res/font
+          REGULAR_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Regular' | head -n1)"
+          BOLD_FONT="$(fc-match -f '%{file}\n' 'Roboto:style=Bold' | head -n1)"
+          test -s "$REGULAR_FONT"
+          test -s "$BOLD_FONT"
+          cp "$REGULAR_FONT" app/src/main/res/font/b_traffic_regular.ttf
+          cp "$BOLD_FONT" app/src/main/res/font/b_traffic_bold.ttf
+          python3 ci/vara-rebrand.py "$PWD"
+          python3 ci/vara-runtime-hotfix.py "$PWD"
+          grep -q 'versionName = "4.3.2"' app/build.gradle.kts
+          grep -q 'versionCode = 52' app/build.gradle.kts
+          grep -q 'androidx.work:work-runtime:2.11.2' app/build.gradle.kts
+          grep -q 'NotificationManager.ensureForeground(this)' app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt
+          ! grep -R -q 'com.vara.vpn\|com.vara.smartvpn' app/src/main/AndroidManifest.xml app/build.gradle.kts
+
+      - name: Install verified Xray core
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          mkdir -p app/libs
+          curl --fail --location --retry 4 --retry-all-errors --output app/libs/libv2ray.aar "$AAR_URL"
+          echo "$AAR_SHA256  app/libs/libv2ray.aar" | sha256sum --check --strict
+
+      - name: Build HEV tun2socks JNI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          bash ci/build-hev-tunnel.sh
+          test -s app/libs/arm64-v8a/libhev-socks5-tunnel.so
+          test -s app/libs/x86_64/libhev-socks5-tunnel.so
+
+      - name: Build and install OpenVPN3 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          export AEGIS_OPENVPN3_ABIS='arm64-v8a;x86_64'
+          export AEGIS_OPENVPN3_BUILD_ROOT="$PWD/.aegis-openvpn3-build"
+          export AEGIS_OPENVPN3_OUT_DIR="$PWD/.aegis-openvpn3-out"
+          bash ci/build-openvpn3-core-android.sh
+          AEGIS_PROJECT_DIR="$PWD" bash ci/install-openvpn3-runtime.sh
+          test -s app/libs/arm64-v8a/libaegis-openvpn3.so
+          test -s app/libs/x86_64/libaegis-openvpn3.so
+
+      - name: Install focused Android 16 smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PROJECT_DIR/app/src/androidTest/java/com/v2ray/ang"
+          cp "$GITHUB_WORKSPACE/private-source/.github/support/VaraRuntimeSmokeTest.kt" \
+             "$PROJECT_DIR/app/src/androidTest/java/com/v2ray/ang/VaraRuntimeSmokeTest.kt"
+
+      - name: Unit tests and lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:dependencies --configuration playstoreDebugRuntimeClasspath > /tmp/runtime-deps.txt
+          grep -q 'androidx.work:work-runtime:2.11.2' /tmp/runtime-deps.txt
+          ./gradlew --no-daemon --stacktrace testPlaystoreDebugUnitTest lintPlaystoreDebug
+
+      - name: Build stable-signed RC5 APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace assemblePlaystoreRelease
+
+          set -a
+          source "$GITHUB_WORKSPACE/private-source/ci/signing/fieldtest-signing.env"
+          set +a
+          KEYSTORE="$RUNNER_TEMP/vara-fieldtest-release.p12"
+          base64 -d "$GITHUB_WORKSPACE/private-source/ci/signing/vara-fieldtest-release.p12.b64" > "$KEYSTORE"
+          test -s "$KEYSTORE"
+
+          rm -rf "$RUNNER_TEMP/vara-signed"
+          mkdir -p "$RUNNER_TEMP/vara-signed"
+          while IFS= read -r apk; do
+            base="$(basename "$apk" .apk)"
+            base="${base%-unsigned}"
+            aligned="$RUNNER_TEMP/vara-signed/${base}-aligned.apk"
+            signed="$RUNNER_TEMP/vara-signed/${base}-signed.apk"
+            "$ZIPALIGN" -f -p 4 "$apk" "$aligned"
+            "$APKSIGNER" sign \
+              --ks "$KEYSTORE" \
+              --ks-type PKCS12 \
+              --ks-key-alias "$VARA_SIGN_ALIAS" \
+              --ks-pass "pass:$VARA_SIGN_STORE_PASS" \
+              --key-pass "pass:$VARA_SIGN_KEY_PASS" \
+              --out "$signed" "$aligned"
+            "$APKSIGNER" verify --verbose --print-certs "$signed"
+            rm -f "$aligned"
+          done < <(find app/build/outputs/apk/playstore/release -type f -name '*.apk' | sort)
+
+          SIGNED_ARM64_APK="$(find "$RUNNER_TEMP/vara-signed" -type f -name '*arm64-v8a*-signed.apk' -print -quit)"
+          SIGNED_X86_64_APK="$(find "$RUNNER_TEMP/vara-signed" -type f -name '*x86_64*-signed.apk' -print -quit)"
+          SIGNED_UNIVERSAL_APK="$(find "$RUNNER_TEMP/vara-signed" -type f -name '*universal*-signed.apk' -print -quit)"
+          test -n "$SIGNED_ARM64_APK"
+          test -n "$SIGNED_X86_64_APK"
+          test -n "$SIGNED_UNIVERSAL_APK"
+
+          test "$("$APK_ANALYZER" manifest application-id "$SIGNED_ARM64_APK")" = "com.saeiddvc.vpn"
+          test "$("$APK_ANALYZER" manifest version-name "$SIGNED_ARM64_APK")" = "4.3.2"
+          VERSION_CODE="$("$APK_ANALYZER" manifest version-code "$SIGNED_ARM64_APK")"
+          test "$VERSION_CODE" = "52"
+          test "$("$APK_ANALYZER" manifest debuggable "$SIGNED_ARM64_APK")" = "false"
+          "$APK_ANALYZER" dex packages "$SIGNED_ARM64_APK" > /tmp/dex-packages.txt
+          grep -q 'androidx.work' /tmp/dex-packages.txt
+          unzip -l "$SIGNED_ARM64_APK" > /tmp/arm64-apk-list.txt
+          grep -Fq 'lib/arm64-v8a/libaegis-openvpn3.so' /tmp/arm64-apk-list.txt
+          grep -Fq 'lib/arm64-v8a/libhev-socks5-tunnel.so' /tmp/arm64-apk-list.txt
+
+          echo "SIGNED_ARM64_APK=$SIGNED_ARM64_APK" >> "$GITHUB_ENV"
+          echo "SIGNED_X86_64_APK=$SIGNED_X86_64_APK" >> "$GITHUB_ENV"
+          echo "SIGNED_UNIVERSAL_APK=$SIGNED_UNIVERSAL_APK" >> "$GITHUB_ENV"
+          echo "VARA_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          printf '%s\n' "$VARA_SIGN_CERT_SHA256" > /tmp/vara-signing-cert-sha256.txt
+
+      - name: Free runner disk and enable KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          df -h /
+
+      - name: Android 16 cold start and VPN foreground-service smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: default
+          arch: x86_64
+          cores: 2
+          emulator-boot-timeout: 900
+          disable-animations: true
+          script: |
+            bash <<'BASH'
+            set -euo pipefail
+            mkdir -p /tmp/android16-test-results
+            "$PROJECT_DIR/gradlew" --no-daemon --stacktrace -p "$PROJECT_DIR" connectedPlaystoreDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.v2ray.ang.VaraRuntimeSmokeTest > /tmp/connected-android16-test.log 2>&1
+            cat /tmp/connected-android16-test.log
+            cp -R "$PROJECT_DIR/app/build/outputs/androidTest-results" /tmp/android16-test-results/ 2>/dev/null || true
+            cp -R "$PROJECT_DIR/app/build/reports/androidTests" /tmp/android16-test-results/ 2>/dev/null || true
+            adb uninstall com.saeiddvc.vpn >/dev/null 2>&1 || true
+            adb install "$SIGNED_X86_64_APK"
+            adb shell pm path com.saeiddvc.vpn | grep -q '^package:'
+            test "$("$APK_ANALYZER" manifest version-name "$SIGNED_X86_64_APK")" = "4.3.2"
+            adb logcat -c || true
+            bash "$PROJECT_DIR/scripts/android16_cold_launch_test.sh"
+            sleep 3
+            adb logcat -d -v threadtime > /tmp/vara-rc5-logcat.txt
+            adb shell dumpsys activity services com.saeiddvc.vpn > /tmp/android16-services.txt || true
+            APP_PID="$(adb shell pidof -s com.saeiddvc.vpn 2>/dev/null | tr -d '\r' || true)"
+            test -n "$APP_PID"
+            adb logcat -d -v threadtime --pid="$APP_PID" > /tmp/vara-rc5-app-logcat.txt || true
+            ! grep -E 'FATAL EXCEPTION|AndroidRuntime.*FATAL|NoClassDefFoundError|ClassNotFoundException|ForegroundServiceDidNotStartInTimeException|android\.app\.RemoteServiceException' /tmp/vara-rc5-app-logcat.txt
+            ! (grep -E 'ForegroundServiceDidNotStartInTimeException|android\.app\.RemoteServiceException' /tmp/vara-rc5-logcat.txt | grep -E 'com\.saeiddvc\.vpn|CoreVpnService')
+            adb shell uiautomator dump /sdcard/vara-ui.xml >/dev/null
+            adb pull /sdcard/vara-ui.xml /tmp/vara-ui.xml >/dev/null
+            grep -q 'Vara' /tmp/vara-ui.xml
+            BASH
+
+      - name: Prepare RC5 deliverable
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-files
+          cp "$SIGNED_ARM64_APK" release-files/Vara-Smart-VPN-4.3.2-RC5-ARM64.apk
+          cp "$SIGNED_UNIVERSAL_APK" release-files/Vara-Smart-VPN-4.3.2-RC5-Universal.apk
+          {
+            echo "applicationId=com.saeiddvc.vpn"
+            echo "versionName=4.3.2"
+            echo "versionCode=$VARA_VERSION_CODE"
+            echo "signingCertSha256=$(cat /tmp/vara-signing-cert-sha256.txt)"
+            echo "updatePolicy=same-package + stable-signing-certificate + monotonically-increasing-versionCode"
+          } > release-files/UPDATE-CHANNEL.txt
+          sha256sum release-files/*.apk | tee release-files/SHA256SUMS.txt
+
+      - name: Upload tested RC5
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vara-Smart-VPN-4.3.2-RC5-UpdateCompatible
+          path: release-files/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vara-Smart-VPN-RC5-failure-diagnostics
+          path: |
+            /tmp/runtime-deps.txt
+            /tmp/dex-packages.txt
+            /tmp/arm64-apk-list.txt
+            /tmp/connected-android16-test.log
+            /tmp/vara-rc5-logcat.txt
+            /tmp/vara-rc5-app-logcat.txt
+            /tmp/android16-services.txt
+            /tmp/android16-test-results/**
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/playstore/release/*.apk
+            ${{ env.PROJECT_DIR }}/app/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
