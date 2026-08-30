@@ -66,13 +66,16 @@ jobs:
           set -euo pipefail
           cd "$PROJECT_DIR"
           OUT="$GITHUB_WORKSPACE/source-bundle"
-          mkdir -p "$OUT/app/src/main/java/com/v2ray/ang"
-          for d in core service handler model fmt enums ui/main; do
-            if [ -d "app/src/main/java/com/v2ray/ang/$d" ]; then
-              mkdir -p "$OUT/app/src/main/java/com/v2ray/ang/$d"
-              cp -a "app/src/main/java/com/v2ray/ang/$d/." "$OUT/app/src/main/java/com/v2ray/ang/$d/"
-            fi
-          done
+          mkdir -p "$OUT/app/src/main/java/com/v2ray"
+          cp -a app/src/main/java/com/v2ray/ang "$OUT/app/src/main/java/com/v2ray/"
+          if [ -d app/src/test/java/com/v2ray/ang ]; then
+            mkdir -p "$OUT/app/src/test/java/com/v2ray"
+            cp -a app/src/test/java/com/v2ray/ang "$OUT/app/src/test/java/com/v2ray/"
+          fi
+          if [ -d app/src/androidTest/java/com/v2ray/ang ]; then
+            mkdir -p "$OUT/app/src/androidTest/java/com/v2ray"
+            cp -a app/src/androidTest/java/com/v2ray/ang "$OUT/app/src/androidTest/java/com/v2ray/"
+          fi
           if [ -d app/src/main/cpp ]; then
             mkdir -p "$OUT/app/src/main"
             cp -a app/src/main/cpp "$OUT/app/src/main/"
@@ -104,7 +107,7 @@ jobs:
                   rows.append((rel, ', '.join(sorted(set(cats)))))
           manifest = root / 'RELEVANT-FILES.txt'
           manifest.write_text(
-              'Vara Smart VPN - Native/Core + Route/Config + Smart Connect/Testing\n'
+              'Vara Smart VPN - Full com.v2ray.ang source + Native/Core + Route/Config + Smart Connect/Testing index\n'
               'Generated from latest private branch vara-vpn-4.3.1-rebrand-fix\n\n' +
               '\n'.join(f'{cats}: {rel}' for rel, cats in rows) + '\n',
               encoding='utf-8'
