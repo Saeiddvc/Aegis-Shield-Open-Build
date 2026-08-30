@@ -14,7 +14,7 @@ permissions:
 jobs:
   build-final:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 100
     env:
       AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
       AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
@@ -38,6 +38,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Install native build tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends swig ninja-build
 
       - name: Resolve Android NDK 29
         shell: bash
@@ -69,20 +74,16 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           gradle = Path('app/build.gradle.kts')
           text = gradle.read_text()
           text = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "4.3.4"', text, count=1)
           text = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 53', text, count=1)
           gradle.write_text(text)
-
           for p in Path('app/src/main/res').glob('values*/strings.xml'):
               s = p.read_text()
               s = re.sub(r'(<string\s+name="app_name"[^>]*>).*?(</string>)', r'\1Vara Smart VPN\2', s, flags=re.S)
               s = s.replace('Aegis Shield', 'Vara Smart VPN')
               p.write_text(s)
-
-          # Preserve the real core in its JNI/runtime-compatible packages.
           required = [
               Path('app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt'),
               Path('app/src/main/java/com/v2ray/ang/service/OpenVpn3EngineManager.kt'),
@@ -94,8 +95,6 @@ jobs:
           missing = [str(p) for p in required if not p.exists()]
           assert not missing, f'Missing preserved core files: {missing}'
           assert not Path('app/src/main/java/com/vara/core').exists(), 'Core must not be moved under com.vara.core'
-
-          # Vara-owned presentation namespace; core remains under com.v2ray.ang.*.
           markers = {
               'app/src/main/java/com/vara/ui/home/HomeUiBoundary.kt': 'package com.vara.ui.home\n\ninternal object HomeUiBoundary\n',
               'app/src/main/java/com/vara/ui/servers/ServersUiBoundary.kt': 'package com.vara.ui.servers\n\ninternal object ServersUiBoundary\n',
@@ -109,29 +108,23 @@ jobs:
           }
           for name, content in markers.items():
               p = Path(name); p.parent.mkdir(parents=True, exist_ok=True); p.write_text(content)
-
           print('Vara 4.3.4 branding and architecture guard applied')
           PY
 
-      - name: Reuse verified all-ABI OpenVPN3 runtime
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build official OpenVPN3 runtime for all ABIs
         shell: bash
+        env:
+          AEGIS_OPENVPN3_ABIS: arm64-v8a;armeabi-v7a;x86_64;x86
+          AEGIS_OPENVPN3_OUT_DIR: ${{ github.workspace }}/openvpn3-out
+          AEGIS_OPENVPN3_BUILD_ROOT: ${{ github.workspace }}/openvpn3-build
         run: |
           set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE/openvpn3-download"
-          gh run download 32235073201 --repo Saeiddvc/Aegis-Shield-Open-Build --name aegis-430-openvpn3-allabi-probe --dir "$GITHUB_WORKSPACE/openvpn3-download"
-          if [ -d "$GITHUB_WORKSPACE/openvpn3-download/jni" ]; then
-            mv "$GITHUB_WORKSPACE/openvpn3-download" "$GITHUB_WORKSPACE/openvpn3-out"
-          else
-            INNER="$(find "$GITHUB_WORKSPACE/openvpn3-download" -mindepth 1 -maxdepth 2 -type d -name jni -print -quit)"
-            test -n "$INNER"
-            ROOT="$(dirname "$INNER")"
-            mv "$ROOT" "$GITHUB_WORKSPACE/openvpn3-out"
-          fi
+          chmod +x private-source/ci/build-openvpn3-core-android.sh
+          private-source/ci/build-openvpn3-core-android.sh
           for abi in arm64-v8a armeabi-v7a x86_64 x86; do
             test -s "$GITHUB_WORKSPACE/openvpn3-out/jni/$abi/libaegis-openvpn3.so"
           done
+          test -n "$(find "$GITHUB_WORKSPACE/openvpn3-out/java" -name 'ClientAPI_OpenVPNClient.java' -print -quit)"
 
       - name: Install OpenVPN3 runtime
         shell: bash
@@ -139,7 +132,7 @@ jobs:
           set -euo pipefail
           chmod +x private-source/ci/package-openvpn3-runtime.sh private-source/ci/install-openvpn3-runtime.sh
           AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" private-source/ci/package-openvpn3-runtime.sh
-          AEGIS_PROJECT_DIR="$PROJECT_DIR" AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" AEGIS_OPENVPN3_BUILD_ROOT="$GITHUB_WORKSPACE/openvpn3-download" private-source/ci/install-openvpn3-runtime.sh
+          AEGIS_PROJECT_DIR="$PROJECT_DIR" AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" AEGIS_OPENVPN3_BUILD_ROOT="$GITHUB_WORKSPACE/openvpn3-build" private-source/ci/install-openvpn3-runtime.sh
 
       - name: Install verified Xray and HEV
         shell: bash
