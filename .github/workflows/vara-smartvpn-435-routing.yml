@@ -1,0 +1,107 @@
+name: Vara Smart VPN 4.3.5 Routing
+
+on:
+  push:
+    branches: [ vara-smartvpn-4.3.5-routing ]
+    paths:
+      - '.github/workflows/vara-smartvpn-435-routing.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-final:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
+      AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install native build tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends swig ninja-build
+      - name: Resolve Android NDK 29
+        run: |
+          set -euo pipefail
+          if [ ! -d "$ANDROID_HOME/ndk/29.0.14206865" ]; then yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"; fi
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+      - name: Extract real core and apply patch chain
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/private-source/$PROJECT_DIR" >> "$GITHUB_ENV"
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$GITHUB_WORKSPACE/private-source" bash "$GITHUB_WORKSPACE/private-source/ci/apply-aegis-430.sh"
+      - name: Apply Vara 4.3.5 routing and rebrand hotfix
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          gradle=Path('app/build.gradle.kts'); s=gradle.read_text(); s=re.sub(r'versionName\s*=\s*"[^"]+"','versionName = "4.3.5"',s,count=1); s=re.sub(r'versionCode\s*=\s*\d+','versionCode = 54',s,count=1); gradle.write_text(s)
+          # Presentation rebrand only; preserve internal Core/JNI identifiers.
+          for p in Path('app/src/main/res').rglob('*.xml'):
+              t=p.read_text(errors='ignore'); t=t.replace('Aegis Shield','Vara Smart VPN').replace('Selected by Aegis','Selected by Vara').replace('bypass Aegis','bypass VPN'); p.write_text(t)
+          for p in Path('app/src/main/res').glob('values*/strings.xml'):
+              t=p.read_text(); t=re.sub(r'(<string\s+name="app_name"[^>]*>).*?(</string>)',r'\1Vara Smart VPN\2',t,flags=re.S); p.write_text(t)
+          # Add stable Vara routing presentation/policy model without duplicating Core.
+          files={
+          'app/src/main/java/com/vara/ui/routing/AppRoutingItemUi.kt':'''package com.vara.ui.routing\n\nimport android.graphics.drawable.Drawable\n\ndata class AppRoutingItemUi(val name:String,val packageName:String,val icon:Drawable?,val selected:Boolean,val enabled:Boolean=true)\n''',
+          'app/src/main/java/com/vara/manager/SplitTunnelMode.kt':'''package com.vara.manager\n\nenum class SplitTunnelMode { BYPASS_SELECTED, VPN_ONLY_SELECTED }\n''',
+          'app/src/main/java/com/vara/manager/SplitTunnelingManager.kt':'''package com.vara.manager\n\nimport android.content.Context\n\nobject SplitTunnelingManager {\n private const val PREFS="vara_split_tunnel"; private const val KEY_ENABLED="enabled"; private const val KEY_MODE="mode"; private const val KEY_SELECTED="selected"\n private val selectedApps=mutableSetOf<String>(); private var enabled=false; var mode=SplitTunnelMode.BYPASS_SELECTED; private set\n fun load(context:Context){ val p=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE); enabled=p.getBoolean(KEY_ENABLED,false); mode=runCatching{SplitTunnelMode.valueOf(p.getString(KEY_MODE,SplitTunnelMode.BYPASS_SELECTED.name)!!)}.getOrDefault(SplitTunnelMode.BYPASS_SELECTED); selectedApps.clear(); selectedApps.addAll(p.getStringSet(KEY_SELECTED,emptySet())?:emptySet()) }\n fun isEnabled()=enabled; fun getSelected():Set<String> = selectedApps.toSet()\n fun setEnabled(context:Context,value:Boolean){enabled=value;persist(context)}\n fun setMode(context:Context,value:SplitTunnelMode){mode=value;persist(context)}\n fun setSelected(context:Context,packageName:String,selected:Boolean){if(selected)selectedApps.add(packageName) else selectedApps.remove(packageName);persist(context)}\n private fun persist(context:Context){context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED,enabled).putString(KEY_MODE,mode.name).putStringSet(KEY_SELECTED,selectedApps.toSet()).apply()}\n}\n'''}
+          for n,c in files.items(): p=Path(n); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(c)
+          required=['app/src/main/java/com/v2ray/ang/service/CoreVpnService.kt','app/src/main/java/com/v2ray/ang/service/OpenVpn3EngineManager.kt','app/src/main/java/com/v2ray/ang/handler/AngConfigManager.kt','app/src/main/java/com/v2ray/ang/fmt/OpenVpnFmt.kt','app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt','app/src/main/java/com/v2ray/ang/ui/main/AegisProtocolRegistry.kt']
+          assert all(Path(x).exists() for x in required); assert not Path('app/src/main/java/com/vara/core').exists()
+          PY
+      - name: Build official OpenVPN3 runtime
+        env:
+          AEGIS_OPENVPN3_ABIS: arm64-v8a;armeabi-v7a;x86_64;x86
+          AEGIS_OPENVPN3_OUT_DIR: ${{ github.workspace }}/openvpn3-out
+          AEGIS_OPENVPN3_BUILD_ROOT: ${{ github.workspace }}/openvpn3-build
+        run: |
+          set -euo pipefail
+          chmod +x private-source/ci/build-openvpn3-core-android.sh
+          private-source/ci/build-openvpn3-core-android.sh
+      - name: Install OpenVPN3 runtime
+        run: |
+          chmod +x private-source/ci/package-openvpn3-runtime.sh private-source/ci/install-openvpn3-runtime.sh
+          AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" private-source/ci/package-openvpn3-runtime.sh
+          AEGIS_PROJECT_DIR="$PROJECT_DIR" AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" AEGIS_OPENVPN3_BUILD_ROOT="$GITHUB_WORKSPACE/openvpn3-build" private-source/ci/install-openvpn3-runtime.sh
+      - name: Install verified Xray and HEV
+        run: |
+          cd "$PROJECT_DIR"; mkdir -p app/libs; curl --fail --location --retry 4 --retry-all-errors -o app/libs/libv2ray.aar "$AAR_URL"; echo "$AAR_SHA256  app/libs/libv2ray.aar" | sha256sum --check --strict; bash "$GITHUB_WORKSPACE/private-source/ci/build-hev-tunnel.sh"
+      - name: Test and build APK
+        run: |
+          set -euo pipefail; cd "$PROJECT_DIR"; chmod +x gradlew; ./gradlew --no-daemon testPlaystoreDebugUnitTest assemblePlaystoreDebug; python3 scripts/verify_apk.py
+      - name: Package APKs
+        run: |
+          set -euo pipefail; mkdir -p "$GITHUB_WORKSPACE/release-files"; ARM64="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*arm64-v8a.apk' -print -quit)"; UNIVERSAL="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/debug" -name '*universal.apk' -print -quit)"; test -n "$ARM64"; test -n "$UNIVERSAL"; cp "$ARM64" "$GITHUB_WORKSPACE/release-files/Vara-Smart-VPN-4.3.5-ARM64.apk"; cp "$UNIVERSAL" "$GITHUB_WORKSPACE/release-files/Vara-Smart-VPN-4.3.5-Universal.apk"; cd "$GITHUB_WORKSPACE/release-files"; sha256sum *.apk > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vara-Smart-VPN-4.3.5-routing
+          path: release-files/
+          if-no-files-found: error
+          retention-days: 14
