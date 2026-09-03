@@ -23,9 +23,10 @@ for marker in [
         raise SystemExit(f"missing validated 0.11.13 prerequisite: {marker}")
 
 # 0.11.14: protected SafePay / Secure Browser WebViews reject browser-native
-# HTTP Basic/Digest and client-certificate prompts. These callbacks belong to
-# WebViewClient (not WebChromeClient), so resolve the protected receiver from the
-# already validated file-chooser guard and patch that receiver's nearest WebViewClient.
+# HTTP Basic/Digest and client-certificate prompts. Resolve each protected receiver
+# from the validated file-chooser guard, then locate the nearest WebViewClient for
+# that receiver regardless of whether source ordering places it before or after the
+# WebChromeClient. This avoids coupling the security patch to incidental UI setup order.
 chooser = re.compile(
     r'@Override public boolean onShowFileChooser\(WebView webView, ValueCallback<Uri\[\]> filePathCallback, WebChromeClient\.FileChooserParams fileChooserParams\) \{\s*'
     r'filePathCallback\.onReceiveValue\(null\);\s*return true;\s*\}'
@@ -83,6 +84,7 @@ def matching_brace(text, open_pos):
 insertions = []
 covered_existing = 0
 resolved = []
+selected_view_clients = set()
 
 for ordinal, cm in enumerate(chooser_matches, start=1):
     chrome_candidates = list(chrome_start.finditer(s, 0, cm.start()))
@@ -96,16 +98,28 @@ for ordinal, cm in enumerate(chooser_matches, start=1):
     view_client_start = re.compile(
         rf'\b{re.escape(receiver)}\.setWebViewClient\(new WebViewClient\(\)\s*\{{'
     )
-    view_candidates = list(view_client_start.finditer(s, 0, chrome.start()))
+    view_candidates = list(view_client_start.finditer(s))
     if not view_candidates:
         raise SystemExit(
-            f'patch failed [auth prompt WebViewClient {ordinal}]: no preceding WebViewClient for {receiver}'
+            f'patch failed [auth prompt WebViewClient {ordinal}]: no WebViewClient for {receiver}'
         )
-    vc = view_candidates[-1]
-    if chrome.start() - vc.start() > 20000:
+
+    # Choose the nearest client declaration to this protected WebChromeClient. Source
+    # ordering differs across SafePay/Secure Browser flows, so both directions are valid.
+    ranked = sorted(view_candidates, key=lambda m: abs(m.start() - chrome.start()))
+    vc = None
+    for candidate in ranked:
+        if candidate.start() in selected_view_clients:
+            continue
+        if abs(candidate.start() - chrome.start()) <= 20000:
+            vc = candidate
+            break
+    if vc is None:
         raise SystemExit(
-            f'patch failed [auth prompt WebViewClient {ordinal}]: client anchor too far from {receiver}'
+            f'patch failed [auth prompt WebViewClient {ordinal}]: no nearby unique WebViewClient for {receiver}'
         )
+    selected_view_clients.add(vc.start())
+
     open_pos = s.find('{', vc.start(), vc.end())
     close_pos = matching_brace(s, open_pos)
     block = s[vc.start():close_pos + 1]
