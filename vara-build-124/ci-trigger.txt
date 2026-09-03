@@ -1,0 +1,2 @@
+VARA Security 0.11.14 CI retrigger marker.
+Reason: validate the corrected receiver-aware protected WebViewClient patch on branch head.
