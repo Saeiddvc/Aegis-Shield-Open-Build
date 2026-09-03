@@ -22,11 +22,6 @@ for marker in [
     if marker not in s:
         raise SystemExit(f"missing validated 0.11.13 prerequisite: {marker}")
 
-# 0.11.14: protected SafePay / Secure Browser WebViews reject browser-native
-# HTTP Basic/Digest and client-certificate prompts. Resolve each protected receiver
-# from the validated file-chooser guard, then locate the nearest WebViewClient for
-# that receiver regardless of whether source ordering places it before or after the
-# WebChromeClient. This avoids coupling the security patch to incidental UI setup order.
 chooser = re.compile(
     r'@Override public boolean onShowFileChooser\(WebView webView, ValueCallback<Uri\[\]> filePathCallback, WebChromeClient\.FileChooserParams fileChooserParams\) \{\s*'
     r'filePathCallback\.onReceiveValue\(null\);\s*return true;\s*\}'
@@ -36,10 +31,10 @@ if not chooser_matches:
     raise SystemExit('patch failed [auth prompt anchor]: no protected file-chooser guards found')
 expected = len(chooser_matches)
 
-chrome_start = re.compile(r'(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\.setWebChromeClient\(new WebChromeClient\(\)\s*\{')
+chrome_start = re.compile(
+    r'(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\.setWebChromeClient\(new WebChromeClient\(\)\s*\{'
+)
 
-# Java-aware enough for anonymous client blocks: skip strings, chars and comments
-# while matching braces so method bodies and literal text cannot terminate early.
 def matching_brace(text, open_pos):
     depth = 0
     i = open_pos
@@ -79,13 +74,10 @@ def matching_brace(text, open_pos):
             if c == '*' and n == '/':
                 state = 'code'; i += 1
         i += 1
-    raise SystemExit('patch failed [auth prompt parser]: unterminated WebViewClient block')
+    raise SystemExit('patch failed [auth prompt parser]: unterminated anonymous client block')
 
-insertions = []
-covered_existing = 0
-resolved = []
-selected_view_clients = set()
-
+# Resolve each protected chooser back to its owning WebChromeClient first.
+protected = []
 for ordinal, cm in enumerate(chooser_matches, start=1):
     chrome_candidates = list(chrome_start.finditer(s, 0, cm.start()))
     if not chrome_candidates:
@@ -93,8 +85,14 @@ for ordinal, cm in enumerate(chooser_matches, start=1):
     chrome = chrome_candidates[-1]
     if cm.start() - chrome.start() > 12000:
         raise SystemExit(f'patch failed [auth prompt client {ordinal}]: chooser too far from WebChromeClient')
-    receiver = chrome.group('receiver')
+    protected.append((cm, chrome, chrome.group('receiver')))
 
+insertions = []
+covered_existing = 0
+resolved = []
+selected_view_clients = set()
+
+for ordinal, (_cm, chrome, receiver) in enumerate(protected, start=1):
     view_client_start = re.compile(
         rf'\b{re.escape(receiver)}\.setWebViewClient\(new WebViewClient\(\)\s*\{{'
     )
@@ -104,19 +102,17 @@ for ordinal, cm in enumerate(chooser_matches, start=1):
             f'patch failed [auth prompt WebViewClient {ordinal}]: no WebViewClient for {receiver}'
         )
 
-    # Choose the nearest client declaration to this protected WebChromeClient. Source
-    # ordering differs across SafePay/Secure Browser flows, so both directions are valid.
+    # Match each protected WebChromeClient to the nearest still-unassigned WebViewClient
+    # for the same receiver. Do not use an arbitrary byte-distance cutoff: the generated
+    # MainActivity has long anonymous client bodies, and source ordering legitimately
+    # differs between protected flows. Uniqueness prevents one local `web` client from
+    # being accidentally reused for another protected flow.
     ranked = sorted(view_candidates, key=lambda m: abs(m.start() - chrome.start()))
-    vc = None
-    for candidate in ranked:
-        if candidate.start() in selected_view_clients:
-            continue
-        if abs(candidate.start() - chrome.start()) <= 20000:
-            vc = candidate
-            break
+    vc = next((c for c in ranked if c.start() not in selected_view_clients), None)
     if vc is None:
         raise SystemExit(
-            f'patch failed [auth prompt WebViewClient {ordinal}]: no nearby unique WebViewClient for {receiver}'
+            f'patch failed [auth prompt WebViewClient {ordinal}]: no unique WebViewClient for {receiver}; '
+            f'candidates={len(view_candidates)}, already-selected={len(selected_view_clients)}'
         )
     selected_view_clients.add(vc.start())
 
@@ -124,8 +120,15 @@ for ordinal, cm in enumerate(chooser_matches, start=1):
     close_pos = matching_brace(s, open_pos)
     block = s[vc.start():close_pos + 1]
 
-    has_http = 'onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler, String host, String realm)' in block
-    has_cert = 'onReceivedClientCertRequest(WebView view, android.webkit.ClientCertRequest request)' in block
+    has_http = (
+        'onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler, String host, String realm)'
+        in block
+    )
+    has_cert = (
+        'onReceivedClientCertRequest(WebView view, android.webkit.ClientCertRequest request)'
+        in block
+    )
+
     if has_http and has_cert:
         covered_existing += 1
         resolved.append(receiver)
@@ -152,7 +155,8 @@ for ordinal, cm in enumerate(chooser_matches, start=1):
 positions = [p for p, _g, _r in insertions]
 if len(set(positions)) != len(positions):
     raise SystemExit(
-        f'patch failed [auth prompt mutation]: duplicate WebViewClient insertion positions ({len(set(positions))}/{len(positions)})'
+        f'patch failed [auth prompt mutation]: duplicate WebViewClient insertion positions '
+        f'({len(set(positions))}/{len(positions)})'
     )
 if covered_existing + len(insertions) != expected:
     raise SystemExit(
@@ -162,8 +166,12 @@ if covered_existing + len(insertions) != expected:
 for pos, guard, _receiver in sorted(insertions, reverse=True):
     s = s[:pos] + guard + s[pos:]
 
-http_count = s.count('onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler, String host, String realm)')
-cert_count = s.count('onReceivedClientCertRequest(WebView view, android.webkit.ClientCertRequest request)')
+http_count = s.count(
+    'onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler, String host, String realm)'
+)
+cert_count = s.count(
+    'onReceivedClientCertRequest(WebView view, android.webkit.ClientCertRequest request)'
+)
 if http_count < expected or cert_count < expected:
     raise SystemExit(
         f'patch failed [auth prompt verify]: HTTP auth={http_count}, client cert={cert_count}, expected at least {expected}'
@@ -180,12 +188,20 @@ s = s.replace(compat_anchor, card, 1)
 s = s.replace('0.11.13 ALPHA', '0.11.14 ALPHA')
 s = s.replace('0.11.13 Alpha • versionCode 1113', '0.11.14 Alpha • versionCode 1114')
 s = s.replace('0.11.13 Alpha', '0.11.14 Alpha')
-s = s.replace('VARA 0.11.13 requires Android 8.0 / API 26 or newer.', 'VARA 0.11.14 requires Android 8.0 / API 26 or newer.')
+s = s.replace(
+    'VARA 0.11.13 requires Android 8.0 / API 26 or newer.',
+    'VARA 0.11.14 requires Android 8.0 / API 26 or newer.'
+)
 java.write_text(s, encoding='utf-8')
 
 g = gradle.read_text(encoding='utf-8')
 g, n1 = re.subn(r'versionCode\s+1113\b', 'versionCode 1114', g, count=1)
-g, n2 = re.subn(r"versionName\s+['\"]0\.11\.13-alpha['\"]", "versionName '0.11.14-alpha'", g, count=1)
+g, n2 = re.subn(
+    r"versionName\s+['\"]0\.11\.13-alpha['\"]",
+    "versionName '0.11.14-alpha'",
+    g,
+    count=1,
+)
 if n1 != 1 or n2 != 1:
     raise SystemExit(f'version patch failed: versionCode={n1}, versionName={n2}')
 gradle.write_text(g, encoding='utf-8')
