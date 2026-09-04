@@ -1,4 +1,4 @@
-name: VARA Security 0.12.0 Signed Release Build
+name: VARA Security 0.12.1 Product Pass Signed Release Build
 
 on:
   push:
@@ -13,6 +13,7 @@ on:
       - 'vara-build-130/**'
       - 'vara-build-131/**'
       - 'vara-build-132/**'
+      - 'vara-build-133/**'
   workflow_dispatch:
 
 permissions:
@@ -33,22 +34,24 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Reconstruct source through patch 132
+      - name: Reconstruct source through patch 133
         shell: bash
         run: |
           set -euo pipefail
-          WORK="$RUNNER_TEMP/vara-132-release"
+          WORK="$RUNNER_TEMP/vara-133-release"
           mkdir -p "$WORK"
           cp -a vara-build-042/android "$WORK/android"
           for v in 043 044 045; do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
           python3 vara-build-046/fix_patch_046.py vara-build-046/patch_046.py
           python3 vara-build-046/patch_046.py "$WORK/android"
-          for v in $(seq -w 47 132); do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
-          grep -q "versionCode 1200" "$WORK/android/app/build.gradle"
-          grep -q "versionName '0.12.0-alpha'" "$WORK/android/app/build.gradle"
+          for v in $(seq -w 47 133); do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
+          grep -q "versionCode 1201" "$WORK/android/app/build.gradle"
+          grep -q "versionName '0.12.1-alpha'" "$WORK/android/app/build.gradle"
+          grep -q 'renderScanResults(DeviceScanResult result)' "$WORK/android/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+          grep -q 'Uninstall app' "$WORK/android/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
           echo "ANDROID_PROJECT=$WORK/android" >> "$GITHUB_ENV"
 
-      - name: Build unsigned release APK
+      - name: Build and test release APK
         shell: bash
         run: |
           set -euo pipefail
@@ -58,36 +61,54 @@ jobs:
           gradle --no-daemon clean test assembleRelease
           test -f app/build/outputs/apk/release/app-release-unsigned.apk
 
-      - name: Reuse validated signing procedure
+      - name: Sign and validate APK
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re, textwrap
-          src=Path('.github/workflows/vara-security-124-build.yml').read_text(encoding='utf-8')
-          m=re.search(r"      - name: Sign, validate and compatibility-check\n        shell: bash\n        run: \|\n(?P<body>.*?)(?=\n      - uses: actions/upload-artifact@v4)", src, re.S)
-          if not m: raise SystemExit('validated signing procedure not found')
-          body=textwrap.dedent(m.group('body'))
-          body=body.replace('vara-124-sign','vara-1200-sign')
-          body=body.replace('VARA-Security-Android-0.11.14-Alpha','VARA-Security-Android-0.12.0-Alpha')
-          body=body.replace("versionCode='1114'", "versionCode='1200'")
-          body=body.replace("versionName='0.11.14-alpha'", "versionName='0.12.0-alpha'")
-          Path('/tmp/vara-sign.sh').write_text(body,encoding='utf-8')
-          PY
-          bash /tmp/vara-sign.sh
+          ROOT="$RUNNER_TEMP/vara-1201-sign"
+          mkdir -p "$ROOT"
+          KEYSTORE="$ROOT/vara-alpha-dev.keystore"
+          base64 --decode vara-build-031/vara-alpha-dev.keystore.b64 > "$KEYSTORE"
+          keytool -list -keystore "$KEYSTORE" -alias vara_alpha -storepass 'VARAAlphaDev2026!' >/dev/null
+          UNSIGNED="$ANDROID_PROJECT/app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED="$ROOT/vara-aligned.apk"
+          OUT="$RUNNER_TEMP/android-release"
+          mkdir -p "$OUT"
+          FINAL="$OUT/VARA-Security-Android-0.12.1-Alpha.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks "$KEYSTORE" --ks-key-alias vara_alpha --ks-pass pass:'VARAAlphaDev2026!' --key-pass pass:'VARAAlphaDev2026!' --out "$FINAL" "$ALIGNED"
+          unzip -t "$FINAL" >/dev/null
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$FINAL" | tee "$OUT/signature.txt"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$FINAL" | tee "$OUT/badging.txt"
+          grep -q "package: name='com.varasecurity.alpha031'" "$OUT/badging.txt"
+          grep -q "versionCode='1201'" "$OUT/badging.txt"
+          grep -q "versionName='0.12.1-alpha'" "$OUT/badging.txt"
+          grep -q "sdkVersion:'26'" "$OUT/badging.txt"
+          grep -q "targetSdkVersion:'35'" "$OUT/badging.txt"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$FINAL" | tee "$OUT/permissions.txt"
+          grep -q 'android.permission.INTERNET' "$OUT/permissions.txt"
+          grep -q 'android.permission.QUERY_ALL_PACKAGES' "$OUT/permissions.txt"
+          grep -q 'android.permission.ACCESS_NETWORK_STATE' "$OUT/permissions.txt"
+          if grep -Eq 'READ_SMS|RECEIVE_SMS|SEND_SMS|READ_CONTACTS|WRITE_CONTACTS|RECORD_AUDIO|CAMERA|ACCESS_FINE_LOCATION|ACCESS_COARSE_LOCATION|SYSTEM_ALERT_WINDOW|REQUEST_INSTALL_PACKAGES|BIND_ACCESSIBILITY_SERVICE|BIND_NOTIFICATION_LISTENER_SERVICE|BIND_AUTOFILL_SERVICE' "$OUT/permissions.txt"; then echo 'Unexpected sensitive permission detected' >&2; exit 1; fi
+          grep -q 'android:allowBackup="false"' "$ANDROID_PROJECT/app/src/main/AndroidManifest.xml"
+          grep -q 'android:usesCleartextTraffic="false"' "$ANDROID_PROJECT/app/src/main/AndroidManifest.xml"
+          sha256sum "$FINAL" | tee "$OUT/VARA-Security-Android-0.12.1-Alpha.sha256"
 
-      - name: Validate real scan wiring invariants
+      - name: Validate product-pass invariants
         shell: bash
         run: |
           set -euo pipefail
-          SRC="$ANDROID_PROJECT/app/src/main/java"
-          grep -q 'AndroidDeviceScanRuntime.create' "$SRC/com/varasecurity/core/scan/DeviceScanJavaBridge.kt"
-          grep -q 'result.getMalwareCount()' "$SRC/com/varasecurity/alpha031/MainActivity.java"
-          grep -q 'result.getSuspiciousCount()' "$SRC/com/varasecurity/alpha031/MainActivity.java"
+          MAIN="$ANDROID_PROJECT/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+          grep -q 'result.getConfigRiskCount()' "$MAIN"
+          grep -q 'getAssessment().getReasons()' "$MAIN"
+          grep -q 'ACTION_APPLICATION_DETAILS_SETTINGS' "$MAIN"
+          grep -q 'Intent.ACTION_DELETE' "$MAIN"
+          grep -q 'No actionable malware findings' "$MAIN"
+          grep -q 'Scan again' "$MAIN"
+          grep -q 'Security tools are ready' "$MAIN"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: VARA-Security-Android-0.12.0-Alpha-Signed
+          name: VARA-Security-Android-0.12.1-Alpha-Signed
           path: ${{ runner.temp }}/android-release/*
           if-no-files-found: error
