@@ -1,4 +1,4 @@
-name: VARA Security 0.12.0 Detection Pipeline Build
+name: VARA Security 0.12.0 Android Detection Build
 
 on:
   push:
@@ -9,6 +9,7 @@ on:
       - 'vara-build-126/**'
       - 'vara-build-127/**'
       - 'vara-build-128/**'
+      - 'vara-build-129/**'
   workflow_dispatch:
 
 permissions:
@@ -28,19 +29,22 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Reconstruct source through patch 128
+      - name: Reconstruct source through patch 129
         shell: bash
         run: |
           set -euo pipefail
-          WORK="$RUNNER_TEMP/vara-128"
+          WORK="$RUNNER_TEMP/vara-129"
           mkdir -p "$WORK"
           cp -a vara-build-042/android "$WORK/android"
           for v in 043 044 045; do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
           python3 vara-build-046/fix_patch_046.py vara-build-046/patch_046.py
           python3 vara-build-046/patch_046.py "$WORK/android"
-          for v in $(seq -w 47 128); do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
-          grep -q "versionCode 1200" "$WORK/android/app/build.gradle"
-          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/detection/InstalledPackageDetectionPipeline.kt"
+          for v in $(seq -w 47 129); do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
+          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/inventory/AndroidPackageInventory.kt"
+          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/hash/DefaultInstalledPackageHashScanner.kt"
+          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/staticanalysis/DefaultStaticPackageAnalyzer.kt"
+          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/cert/DefaultPackageCertificateScanner.kt"
+          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/installer/DefaultInstallerReputationAnalyzer.kt"
           echo "ANDROID_PROJECT=$WORK/android" >> "$GITHUB_ENV"
       - name: Compile test and assemble
         shell: bash
@@ -51,6 +55,18 @@ jobs:
           cd "$ANDROID_PROJECT"
           gradle --no-daemon clean test assembleRelease
           test -f app/build/outputs/apk/release/app-release-unsigned.apk
+      - name: Validate Android detection implementation invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$ANDROID_PROJECT/app/src/main/java/com/varasecurity/core"
+          grep -q 'MessageDigest.getInstance("SHA-256")' "$SRC/hash/DefaultInstalledPackageHashScanner.kt"
+          grep -q 'BIND_ACCESSIBILITY_SERVICE' "$SRC/staticanalysis/DefaultStaticPackageAnalyzer.kt"
+          grep -q 'BIND_NOTIFICATION_LISTENER_SERVICE' "$SRC/staticanalysis/DefaultStaticPackageAnalyzer.kt"
+          grep -q 'BIND_DEVICE_ADMIN' "$SRC/staticanalysis/DefaultStaticPackageAnalyzer.kt"
+          grep -q 'getInstallSourceInfo' "$SRC/installer/DefaultInstallerReputationAnalyzer.kt"
+          grep -q 'GET_SIGNING_CERTIFICATES' "$SRC/inventory/AndroidPackageInventory.kt"
+          grep -q 'CertificateAssessmentStatus.PARSE_ERROR' "$SRC/cert/DefaultPackageCertificateScanner.kt"
       - name: Validate security invariants
         shell: bash
         run: |
@@ -63,6 +79,6 @@ jobs:
           if grep -Eq 'src="user"|src="@raw/' "$NSC"; then exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
-          name: VARA-Security-0.12.0-Detection-Pipeline-Unsigned
+          name: VARA-Security-0.12.0-Android-Detection-Unsigned
           path: ${{ env.ANDROID_PROJECT }}/app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
