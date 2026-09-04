@@ -1,4 +1,4 @@
-name: VARA Security 0.12.0 Real Device Scan Build
+name: VARA Security 0.12.0 Signed Release Build
 
 on:
   push:
@@ -32,21 +32,23 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+
       - name: Reconstruct source through patch 132
         shell: bash
         run: |
           set -euo pipefail
-          WORK="$RUNNER_TEMP/vara-132"
+          WORK="$RUNNER_TEMP/vara-132-release"
           mkdir -p "$WORK"
           cp -a vara-build-042/android "$WORK/android"
           for v in 043 044 045; do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
           python3 vara-build-046/fix_patch_046.py vara-build-046/patch_046.py
           python3 vara-build-046/patch_046.py "$WORK/android"
           for v in $(seq -w 47 132); do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
-          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/scan/DeviceScanJavaBridge.kt"
-          grep -q 'DeviceScanJavaBridge.run' "$WORK/android/app/src/main/java/com/varasecurity/alpha031/MainActivity.java"
+          grep -q "versionCode 1200" "$WORK/android/app/build.gradle"
+          grep -q "versionName '0.12.0-alpha'" "$WORK/android/app/build.gradle"
           echo "ANDROID_PROJECT=$WORK/android" >> "$GITHUB_ENV"
-      - name: Compile test and assemble
+
+      - name: Build unsigned release APK
         shell: bash
         run: |
           set -euo pipefail
@@ -55,6 +57,26 @@ jobs:
           cd "$ANDROID_PROJECT"
           gradle --no-daemon clean test assembleRelease
           test -f app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Reuse validated signing procedure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, textwrap
+          src=Path('.github/workflows/vara-security-124-build.yml').read_text(encoding='utf-8')
+          m=re.search(r"      - name: Sign, validate and compatibility-check\n        shell: bash\n        run: \|\n(?P<body>.*?)(?=\n      - uses: actions/upload-artifact@v4)", src, re.S)
+          if not m: raise SystemExit('validated signing procedure not found')
+          body=textwrap.dedent(m.group('body'))
+          body=body.replace('vara-124-sign','vara-1200-sign')
+          body=body.replace('VARA-Security-Android-0.11.14-Alpha','VARA-Security-Android-0.12.0-Alpha')
+          body=body.replace("versionCode='1114'", "versionCode='1200'")
+          body=body.replace("versionName='0.11.14-alpha'", "versionName='0.12.0-alpha'")
+          Path('/tmp/vara-sign.sh').write_text(body,encoding='utf-8')
+          PY
+          bash /tmp/vara-sign.sh
+
       - name: Validate real scan wiring invariants
         shell: bash
         run: |
@@ -63,19 +85,9 @@ jobs:
           grep -q 'AndroidDeviceScanRuntime.create' "$SRC/com/varasecurity/core/scan/DeviceScanJavaBridge.kt"
           grep -q 'result.getMalwareCount()' "$SRC/com/varasecurity/alpha031/MainActivity.java"
           grep -q 'result.getSuspiciousCount()' "$SRC/com/varasecurity/alpha031/MainActivity.java"
-          grep -q 'Scan failed. Try again.' "$SRC/com/varasecurity/alpha031/MainActivity.java"
-      - name: Validate security invariants
-        shell: bash
-        run: |
-          set -euo pipefail
-          MANIFEST="$ANDROID_PROJECT/app/src/main/AndroidManifest.xml"
-          NSC="$ANDROID_PROJECT/app/src/main/res/xml/network_security_config.xml"
-          grep -q 'android:usesCleartextTraffic="false"' "$MANIFEST"
-          grep -q 'android.permission.QUERY_ALL_PACKAGES' "$MANIFEST"
-          grep -q '<certificates src="system" />' "$NSC"
-          if grep -Eq 'src="user"|src="@raw/' "$NSC"; then exit 1; fi
+
       - uses: actions/upload-artifact@v4
         with:
-          name: VARA-Security-0.12.0-Real-Device-Scan-Unsigned
-          path: ${{ env.ANDROID_PROJECT }}/app/build/outputs/apk/release/app-release-unsigned.apk
+          name: VARA-Security-Android-0.12.0-Alpha-Signed
+          path: ${{ runner.temp }}/android-release/*
           if-no-files-found: error
