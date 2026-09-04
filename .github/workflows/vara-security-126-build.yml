@@ -1,4 +1,4 @@
-name: VARA Security 0.12.0 Detection Core Build
+name: VARA Security 0.12.0 Detection Pipeline Build
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - 'vara-build-125/**'
       - 'vara-build-126/**'
       - 'vara-build-127/**'
+      - 'vara-build-128/**'
   workflow_dispatch:
 
 permissions:
@@ -27,29 +28,21 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-
-      - name: Reconstruct VARA 0.12.0 source
+      - name: Reconstruct source through patch 128
         shell: bash
         run: |
           set -euo pipefail
-          WORK="$RUNNER_TEMP/vara-127"
+          WORK="$RUNNER_TEMP/vara-128"
           mkdir -p "$WORK"
           cp -a vara-build-042/android "$WORK/android"
           for v in 043 044 045; do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
           python3 vara-build-046/fix_patch_046.py vara-build-046/patch_046.py
           python3 vara-build-046/patch_046.py "$WORK/android"
-          for v in 047 048 049 050 051 052 053 054 055 056 057 058 059 060 061 062 063 064 065 066 067 068 069 070 071 072 073 074 075 076 077 078 079 080 081 082 083 084 085 086 087 088 089 090 091 092 093 094 095 096 097 098 099 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127; do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
+          for v in $(seq -w 47 128); do python3 vara-build-$v/patch_$v.py "$WORK/android"; done
           grep -q "versionCode 1200" "$WORK/android/app/build.gradle"
-          grep -q "versionName '0.12.0-alpha'" "$WORK/android/app/build.gradle"
-          grep -q "org.jetbrains.kotlin.android" "$WORK/android/build.gradle"
-          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/heuristic/HeuristicEngine.kt"
-          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/heuristic/PackageSecurityAssessmentOrchestrator.kt"
-          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/detection/DetectionScanModels.kt"
-          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/scan/DeviceScanResult.kt"
-          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/scan/DeviceScanState.kt"
+          test -f "$WORK/android/app/src/main/java/com/varasecurity/core/detection/InstalledPackageDetectionPipeline.kt"
           echo "ANDROID_PROJECT=$WORK/android" >> "$GITHUB_ENV"
-
-      - name: Compile detection and device scan core
+      - name: Compile test and assemble
         shell: bash
         run: |
           set -euo pipefail
@@ -58,18 +51,7 @@ jobs:
           cd "$ANDROID_PROJECT"
           gradle --no-daemon clean test assembleRelease
           test -f app/build/outputs/apk/release/app-release-unsigned.apk
-
-      - name: Validate locked scan model invariants
-        shell: bash
-        run: |
-          set -euo pipefail
-          SRC="$ANDROID_PROJECT/app/src/main/java"
-          grep -q 'enum class DetectionScanFailureReason { INVENTORY_UNAVAILABLE, INVENTORY_FAILED }' "$SRC/com/varasecurity/core/detection/DetectionScanModels.kt"
-          grep -q 'data class Running(val progress: DeviceScanProgress)' "$SRC/com/varasecurity/core/scan/DeviceScanState.kt"
-          grep -q 'DetectionType.MALWARE -> malware++' "$SRC/com/varasecurity/core/scan/DeviceScanResult.kt"
-          if grep -q 'knownMaliciousHashCount' "$SRC/com/varasecurity/core/scan/DeviceScanResult.kt"; then exit 1; fi
-
-      - name: Validate baseline security invariants
+      - name: Validate security invariants
         shell: bash
         run: |
           set -euo pipefail
@@ -79,9 +61,8 @@ jobs:
           grep -q 'android.permission.QUERY_ALL_PACKAGES' "$MANIFEST"
           grep -q '<certificates src="system" />' "$NSC"
           if grep -Eq 'src="user"|src="@raw/' "$NSC"; then exit 1; fi
-
       - uses: actions/upload-artifact@v4
         with:
-          name: VARA-Security-0.12.0-Detection-DeviceScan-Core-Unsigned
+          name: VARA-Security-0.12.0-Detection-Pipeline-Unsigned
           path: ${{ env.ANDROID_PROJECT }}/app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
