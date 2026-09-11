@@ -1,0 +1,164 @@
+name: Vara Smart VPN 4.5.7 Public Build Shell
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/vara-457-open-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
+      AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
+      NDK_VERSION: 29.0.14206865
+      BUILD_TOOLS_VERSION: 36.0.0
+
+    steps:
+      - name: Checkout public build shell
+        uses: actions/checkout@v4
+
+      - name: Validate private-source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+
+      - name: Checkout private Vara source
+        uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          ref: vara-451-compatibility-privacy-hotspot
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install native build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip curl git swig ninja-build cmake jq
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;$NDK_VERSION" "cmake;3.22.1" "platform-tools" "platforms;android-36" "build-tools;$BUILD_TOOLS_VERSION"
+          ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$ANDROID_SDK"
+          echo "ANDROID_HOME=$ANDROID_SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Extract audited private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/private-source/$PROJECT_DIR" >> "$GITHUB_ENV"
+          rm -rf "$PROJECT_DIR/ci" "$PROJECT_DIR/.github/support"
+          mkdir -p "$PROJECT_DIR/.github"
+          cp -a ci "$PROJECT_DIR/ci"
+          if [ -d .github/support ]; then cp -a .github/support "$PROJECT_DIR/.github/support"; fi
+
+      - name: Apply Vara 4.5.7 patch chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$PWD" bash ci/apply-aegis-430.sh
+          grep -q 'versionName = "4.5.7"' app/build.gradle.kts
+          grep -q 'versionCode = 457' app/build.gradle.kts
+          grep -q 'VaraTunnelVerifier.verify()' app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt
+          test -s app/src/main/java/com/v2ray/ang/ui/main/VaraNetworkRadar.kt
+          test -s app/src/main/java/com/v2ray/ang/ui/main/VaraLocale.kt
+
+      - name: Install verified Xray core
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          mkdir -p app/libs
+          curl --fail --location --retry 4 --retry-all-errors --output app/libs/libv2ray.aar "$AAR_URL"
+          echo "$AAR_SHA256  app/libs/libv2ray.aar" | sha256sum --check --strict
+
+      - name: Build HEV tun2socks JNI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          bash ci/build-hev-tunnel.sh
+
+      - name: Build OpenVPN3 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          export AEGIS_OPENVPN3_ABIS='arm64-v8a;x86_64'
+          export AEGIS_OPENVPN3_BUILD_ROOT="$PWD/.aegis-openvpn3-build"
+          export AEGIS_OPENVPN3_OUT_DIR="$PWD/.aegis-openvpn3-out"
+          bash ci/build-openvpn3-core-android.sh
+          AEGIS_PROJECT_DIR="$PWD" bash ci/install-openvpn3-runtime.sh
+          test -s app/libs/arm64-v8a/libaegis-openvpn3.so
+          test -s app/libs/x86_64/libaegis-openvpn3.so
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace testPlaystoreDebugUnitTest
+
+      - name: Android lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace lintPlaystoreDebug
+
+      - name: Build unsigned release APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace assemblePlaystoreRelease
+          find app/build/outputs/apk/playstore/release -type f -name '*.apk' -print
+
+      - name: Package unsigned build artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-files
+          ARM64="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/release" -type f -name '*arm64-v8a*.apk' -print -quit)"
+          UNIVERSAL="$(find "$PROJECT_DIR/app/build/outputs/apk/playstore/release" -type f -name '*universal*.apk' -print -quit)"
+          test -n "$ARM64"
+          cp "$ARM64" release-files/Vara-Smart-VPN-4.5.7-ARM64-UNSIGNED.apk
+          if [ -n "$UNIVERSAL" ]; then cp "$UNIVERSAL" release-files/Vara-Smart-VPN-4.5.7-Universal-UNSIGNED.apk; fi
+          sha256sum release-files/*.apk > release-files/SHA256SUMS-UNSIGNED.txt
+          cat release-files/SHA256SUMS-UNSIGNED.txt
+
+      - name: Upload unsigned build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vara-Smart-VPN-4.5.7-UNSIGNED
+          path: release-files/*
+          if-no-files-found: error
+          retention-days: 7
