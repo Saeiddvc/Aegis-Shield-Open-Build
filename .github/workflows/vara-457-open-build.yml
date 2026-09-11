@@ -125,7 +125,17 @@ jobs:
           set -euo pipefail
           cd "$PROJECT_DIR"
           chmod +x gradlew
+          set +e
           ./gradlew --no-daemon --stacktrace testPlaystoreDebugUnitTest
+          TEST_STATUS=$?
+          set -e
+          if [ "$TEST_STATUS" -ne 0 ]; then
+            echo '=== VARA UNIT TEST FAILURE REPORTS ==='
+            find app/build/test-results/testPlaystoreDebugUnitTest -type f -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
+            echo '=== FAILURE LINES FROM HTML/TEXT REPORTS ==='
+            grep -RniE 'failure|failed|Assertion|expected|exception|error' app/build/reports/tests/testPlaystoreDebugUnitTest app/build/test-results/testPlaystoreDebugUnitTest 2>/dev/null | head -n 400 || true
+            exit "$TEST_STATUS"
+          fi
 
       - name: Android lint
         shell: bash
