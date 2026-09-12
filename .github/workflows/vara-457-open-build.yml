@@ -1,5 +1,5 @@
 name: Vara Smart VPN 4.5.7 Public Build Shell
-# private source refresh: 7873963
+# diagnostics refresh: exact unit-test reports enabled
 
 on:
   push:
