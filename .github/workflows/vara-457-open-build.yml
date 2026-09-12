@@ -1,5 +1,5 @@
 name: Vara Smart VPN 4.5.7 Public Build Shell
-# diagnostics refresh: exact unit-test reports enabled
+# diagnostics refresh: exact unit-test reports enabled; retrigger after signing-continuity source update
 
 on:
   push:
