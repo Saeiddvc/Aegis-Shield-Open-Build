@@ -138,6 +138,17 @@ jobs:
             exit "$TEST_STATUS"
           fi
 
+      - name: Upload unit test failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vara-4.5.7-unit-test-failures
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/test-results/testPlaystoreDebugUnitTest/*.xml
+            ${{ env.PROJECT_DIR }}/app/build/reports/tests/testPlaystoreDebugUnitTest/**
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Android lint
         shell: bash
         run: |
