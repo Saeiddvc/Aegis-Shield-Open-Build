@@ -1,5 +1,5 @@
 name: Vara Smart VPN 4.5.7 Public Build Shell
-# diagnostics refresh: persist unit-test reports before failing 2026-09-13
+# diagnostics refresh: capture Gradle output and test reports repository-wide 2026-09-13
 
 on:
   push:
@@ -126,21 +126,27 @@ jobs:
           set -euo pipefail
           cd "$PROJECT_DIR"
           chmod +x gradlew
+          DIAG_DIR="$GITHUB_WORKSPACE/unit-test-diagnostics"
+          rm -rf "$DIAG_DIR"
+          mkdir -p "$DIAG_DIR"
           set +e
-          ./gradlew --no-daemon --stacktrace testPlaystoreDebugUnitTest
-          TEST_STATUS=$?
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace testPlaystoreDebugUnitTest 2>&1 | tee "$DIAG_DIR/gradle-test-output.txt"
+          TEST_STATUS=${PIPESTATUS[0]}
+          set +o pipefail
           set -e
           if [ "$TEST_STATUS" -ne 0 ]; then
-            DIAG_DIR="$GITHUB_WORKSPACE/unit-test-diagnostics"
-            rm -rf "$DIAG_DIR"
-            mkdir -p "$DIAG_DIR"
             echo '=== VARA UNIT TEST FAILURE REPORTS ==='
-            find app/build/test-results -type f -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
-            echo '=== FAILURE LINES FROM TEST REPORTS ==='
-            grep -RniE 'failure|failed|Assertion|expected|exception|error' app/build/reports/tests app/build/test-results 2>/dev/null | head -n 600 || true
-            if [ -d app/build/test-results ]; then cp -a app/build/test-results "$DIAG_DIR/"; fi
-            if [ -d app/build/reports/tests ]; then cp -a app/build/reports/tests "$DIAG_DIR/"; fi
-            printf '%s\n' "$TEST_STATUS" > "$DIAG_DIR/gradle-exit-status.txt"
+            find . -type f -path '*/build/test-results/*' -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
+            echo '=== FAILURE LINES FROM ALL TEST REPORTS ==='
+            grep -RniE 'failure|failed|Assertion|expected|exception|error' . --include='*.xml' --include='*.html' 2>/dev/null | head -n 1200 || true
+            mkdir -p "$DIAG_DIR/reports"
+            while IFS= read -r report; do
+              rel="${report#./}"
+              mkdir -p "$DIAG_DIR/reports/$(dirname "$rel")"
+              cp "$report" "$DIAG_DIR/reports/$rel"
+            done < <(find . -type f \( -path '*/build/test-results/*' -o -path '*/build/reports/tests/*' \) 2>/dev/null)
+            printf 'gradle_status=%s\n' "$TEST_STATUS" > "$DIAG_DIR/exit-status.txt"
             tar -czf "$GITHUB_WORKSPACE/vara-unit-test-diagnostics.tgz" -C "$GITHUB_WORKSPACE" unit-test-diagnostics
             test -s "$GITHUB_WORKSPACE/vara-unit-test-diagnostics.tgz"
             exit "$TEST_STATUS"
@@ -150,7 +156,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Vara-4.5.7-unit-test-failures
+          name: Vara-Smart-VPN-4.5.7-UNIT-TEST-FAILURES
           path: ${{ github.workspace }}/vara-unit-test-diagnostics.tgz
           if-no-files-found: error
           retention-days: 7
