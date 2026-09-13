@@ -1,5 +1,5 @@
 name: Vara Smart VPN 4.5.7 Public Build Shell
-# diagnostics refresh: unit-test reports artifact retrigger 2026-09-13
+# diagnostics refresh: persist unit-test reports before failing 2026-09-13
 
 on:
   push:
@@ -131,10 +131,18 @@ jobs:
           TEST_STATUS=$?
           set -e
           if [ "$TEST_STATUS" -ne 0 ]; then
+            DIAG_DIR="$GITHUB_WORKSPACE/unit-test-diagnostics"
+            rm -rf "$DIAG_DIR"
+            mkdir -p "$DIAG_DIR"
             echo '=== VARA UNIT TEST FAILURE REPORTS ==='
-            find app/build/test-results/testPlaystoreDebugUnitTest -type f -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
-            echo '=== FAILURE LINES FROM HTML/TEXT REPORTS ==='
-            grep -RniE 'failure|failed|Assertion|expected|exception|error' app/build/reports/tests/testPlaystoreDebugUnitTest app/build/test-results/testPlaystoreDebugUnitTest 2>/dev/null | head -n 400 || true
+            find app/build/test-results -type f -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
+            echo '=== FAILURE LINES FROM TEST REPORTS ==='
+            grep -RniE 'failure|failed|Assertion|expected|exception|error' app/build/reports/tests app/build/test-results 2>/dev/null | head -n 600 || true
+            if [ -d app/build/test-results ]; then cp -a app/build/test-results "$DIAG_DIR/"; fi
+            if [ -d app/build/reports/tests ]; then cp -a app/build/reports/tests "$DIAG_DIR/"; fi
+            printf '%s\n' "$TEST_STATUS" > "$DIAG_DIR/gradle-exit-status.txt"
+            tar -czf "$GITHUB_WORKSPACE/vara-unit-test-diagnostics.tgz" -C "$GITHUB_WORKSPACE" unit-test-diagnostics
+            test -s "$GITHUB_WORKSPACE/vara-unit-test-diagnostics.tgz"
             exit "$TEST_STATUS"
           fi
 
@@ -143,10 +151,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Vara-4.5.7-unit-test-failures
-          path: |
-            ${{ env.PROJECT_DIR }}/app/build/test-results/testPlaystoreDebugUnitTest/*.xml
-            ${{ env.PROJECT_DIR }}/app/build/reports/tests/testPlaystoreDebugUnitTest/**
-          if-no-files-found: warn
+          path: ${{ github.workspace }}/vara-unit-test-diagnostics.tgz
+          if-no-files-found: error
           retention-days: 7
 
       - name: Android lint
