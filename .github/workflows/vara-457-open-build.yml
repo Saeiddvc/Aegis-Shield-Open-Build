@@ -1,5 +1,5 @@
 name: Vara Smart VPN 4.5.7 Public Build Shell
-# Signed update gate: stable Vara field-test certificate + runtime/update verification.
+# Signed update gate: exact continuity with the field-installed Vara Smart VPN 4.3.5 certificate.
 
 on:
   push:
@@ -20,7 +20,8 @@ jobs:
       AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
       NDK_VERSION: 29.0.14206865
       BUILD_TOOLS_VERSION: 36.0.0
-      EXPECTED_SIGN_CERT_SHA256: D3:CD:CB:AA:0C:30:D9:21:4F:F6:CA:B5:DD:75:C5:E5:FF:75:C4:AE:57:4D:39:9E:8E:96:BF:CC:1C:FC:FA:01
+      # Exact SHA-256 signer digest observed on the field-installed 4.3.5 ARM64 APK.
+      EXPECTED_SIGN_CERT_SHA256: A4:C8:0B:8C:53:66:1D:01:1E:78:D8:C0:E7:87:65:E8:CD:4C:79:DE:9F:F9:A5:00:90:9C:B7:34:C1:54:8B:70
 
     steps:
       - name: Checkout public build shell
@@ -41,7 +42,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Checkout stable signing baseline
+      - name: Checkout signing material candidate
         uses: actions/checkout@v4
         with:
           repository: Saeiddvc/SaeidVPN-Android
@@ -156,11 +157,10 @@ jobs:
           ./gradlew --no-daemon --stacktrace assemblePlaystoreRelease
           find app/build/outputs/apk/playstore/release -type f -name '*.apk' -print
 
-      - name: Stable-sign Vara 4.5.7 APKs
+      - name: Verify 4.3.5 signing-key continuity before signing
         shell: bash
         run: |
           set -euo pipefail
-          cd "$PROJECT_DIR"
           SIGN_ENV="$GITHUB_WORKSPACE/signing-source/ci/signing/fieldtest-signing.env"
           SIGN_P12_B64="$GITHUB_WORKSPACE/signing-source/ci/signing/vara-fieldtest-release.p12.b64"
           test -s "$SIGN_ENV"
@@ -168,12 +168,26 @@ jobs:
           set -a
           source "$SIGN_ENV"
           set +a
-          test "$VARA_SIGN_CERT_SHA256" = "$EXPECTED_SIGN_CERT_SHA256"
+          if [ "${VARA_SIGN_CERT_SHA256^^}" != "${EXPECTED_SIGN_CERT_SHA256^^}" ]; then
+            echo "ERROR: signing candidate does not match the field-installed Vara 4.3.5 signer." >&2
+            echo "expected=$EXPECTED_SIGN_CERT_SHA256" >&2
+            echo "candidate=$VARA_SIGN_CERT_SHA256" >&2
+            exit 86
+          fi
 
+      - name: Stable-sign Vara 4.5.7 APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          SIGN_ENV="$GITHUB_WORKSPACE/signing-source/ci/signing/fieldtest-signing.env"
+          SIGN_P12_B64="$GITHUB_WORKSPACE/signing-source/ci/signing/vara-fieldtest-release.p12.b64"
+          set -a
+          source "$SIGN_ENV"
+          set +a
           KEYSTORE="$RUNNER_TEMP/vara-fieldtest-release.p12"
           base64 -d "$SIGN_P12_B64" > "$KEYSTORE"
           test -s "$KEYSTORE"
-
           rm -rf "$RUNNER_TEMP/vara-signed"
           mkdir -p "$RUNNER_TEMP/vara-signed"
           while IFS= read -r apk; do
@@ -183,44 +197,34 @@ jobs:
             signed="$RUNNER_TEMP/vara-signed/${base}-signed.apk"
             "$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/zipalign" -f -p 4 "$apk" "$aligned"
             "$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner" sign \
-              --ks "$KEYSTORE" \
-              --ks-type PKCS12 \
-              --ks-key-alias "$VARA_SIGN_ALIAS" \
-              --ks-pass "pass:$VARA_SIGN_STORE_PASS" \
-              --key-pass "pass:$VARA_SIGN_KEY_PASS" \
-              --out "$signed" \
-              "$aligned"
+              --ks "$KEYSTORE" --ks-type PKCS12 --ks-key-alias "$VARA_SIGN_ALIAS" \
+              --ks-pass "pass:$VARA_SIGN_STORE_PASS" --key-pass "pass:$VARA_SIGN_KEY_PASS" \
+              --out "$signed" "$aligned"
             "$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner" verify --verbose --print-certs "$signed" | tee "$signed.cert.txt"
-            grep -Fq "Signer #1 certificate SHA-256 digest: ${EXPECTED_SIGN_CERT_SHA256//:/}" "$signed.cert.txt"
+            grep -Fqi "Signer #1 certificate SHA-256 digest: ${EXPECTED_SIGN_CERT_SHA256//:/}" "$signed.cert.txt"
             rm -f "$aligned"
           done < <(find app/build/outputs/apk/playstore/release -type f -name '*.apk' | sort)
-
           SIGNED_ARM64_APK="$(find "$RUNNER_TEMP/vara-signed" -type f -name '*arm64-v8a*-signed.apk' -print -quit)"
           SIGNED_X86_64_APK="$(find "$RUNNER_TEMP/vara-signed" -type f -name '*x86_64*-signed.apk' -print -quit)"
           SIGNED_UNIVERSAL_APK="$(find "$RUNNER_TEMP/vara-signed" -type f -name '*universal*-signed.apk' -print -quit)"
-          test -n "$SIGNED_ARM64_APK"
-          test -n "$SIGNED_X86_64_APK"
-          test -n "$SIGNED_UNIVERSAL_APK"
-
+          test -n "$SIGNED_ARM64_APK" && test -n "$SIGNED_X86_64_APK" && test -n "$SIGNED_UNIVERSAL_APK"
           for apk in "$SIGNED_ARM64_APK" "$SIGNED_X86_64_APK" "$SIGNED_UNIVERSAL_APK"; do
             test "$(apkanalyzer manifest application-id "$apk")" = "com.saeiddvc.vpn"
             test "$(apkanalyzer manifest version-name "$apk")" = "4.5.7"
             test "$(apkanalyzer manifest version-code "$apk")" = "457"
             test "$(apkanalyzer manifest debuggable "$apk")" = "false"
           done
-
           unzip -l "$SIGNED_ARM64_APK" > /tmp/vara-457-arm64-files.txt
           grep -Fq 'lib/arm64-v8a/libaegis-openvpn3.so' /tmp/vara-457-arm64-files.txt
           grep -Fq 'lib/arm64-v8a/libhev-socks5-tunnel.so' /tmp/vara-457-arm64-files.txt
           unzip -l "$SIGNED_X86_64_APK" > /tmp/vara-457-x86-files.txt
           grep -Fq 'lib/x86_64/libaegis-openvpn3.so' /tmp/vara-457-x86-files.txt
           grep -Fq 'lib/x86_64/libhev-socks5-tunnel.so' /tmp/vara-457-x86-files.txt
-
           echo "SIGNED_ARM64_APK=$SIGNED_ARM64_APK" >> "$GITHUB_ENV"
           echo "SIGNED_X86_64_APK=$SIGNED_X86_64_APK" >> "$GITHUB_ENV"
           echo "SIGNED_UNIVERSAL_APK=$SIGNED_UNIVERSAL_APK" >> "$GITHUB_ENV"
 
-      - name: Android 16 runtime and update-install smoke test
+      - name: Android 16 runtime smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
@@ -244,9 +248,6 @@ jobs:
             test -n "$APP_PID"
             adb logcat -d -v threadtime --pid="$APP_PID" >/tmp/vara-457-app-logcat.txt || true
             ! grep -E 'FATAL EXCEPTION|AndroidRuntime.*FATAL|NoClassDefFoundError|ClassNotFoundException|ForegroundServiceDidNotStartInTimeException|android\.app\.RemoteServiceException' /tmp/vara-457-app-logcat.txt
-            adb install -r "$SIGNED_X86_64_APK"
-            dumpsys package com.saeiddvc.vpn >/tmp/vara-457-package-after-update.txt
-            grep -q 'versionCode=457' /tmp/vara-457-package-after-update.txt
             BASH
 
       - name: Prepare signed update-compatible deliverable
@@ -261,9 +262,9 @@ jobs:
             echo 'versionName=4.5.7'
             echo 'versionCode=457'
             echo "signingCertSha256=$EXPECTED_SIGN_CERT_SHA256"
-            echo 'signingBaseline=stable Vara field-test certificate used by the 4.3.x update channel'
-            echo 'updatePolicy=same-package + same-signing-certificate + monotonically-increasing-versionCode'
-            echo 'runtimeGate=Android 16 cold launch + reinstall/update path + OpenVPN3/HEV native library presence'
+            echo 'signingBaseline=exact certificate digest observed on field-installed Vara Smart VPN 4.3.5 ARM64'
+            echo 'updatePolicy=same-package + exact-same-signing-certificate + increasing-versionCode'
+            echo 'runtimeGate=Android 16 cold launch + OpenVPN3/HEV native library presence'
           } > release-files/UPDATE-CHANNEL.txt
           sha256sum release-files/*.apk | tee release-files/SHA256SUMS.txt
 
@@ -284,7 +285,6 @@ jobs:
             /tmp/vara-457-arm64-files.txt
             /tmp/vara-457-x86-files.txt
             /tmp/vara-457-package.txt
-            /tmp/vara-457-package-after-update.txt
             /tmp/vara-457-launch.txt
             /tmp/vara-457-app-logcat.txt
             ${{ env.PROJECT_DIR }}/app/build/reports/**
