@@ -85,9 +85,11 @@ jobs:
           set -euo pipefail
           cd "$PROJECT_DIR"
           AEGIS_SOURCE_ROOT="$PWD" bash ci/apply-aegis-430.sh
+          python3 ci/rc37-vara-457-evidence-compatibility.py
           grep -q 'versionName = "4.5.7"' app/build.gradle.kts
           grep -q 'versionCode = 457' app/build.gradle.kts
           grep -q 'VaraTunnelVerifier.verify()' app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt
+          grep -q 'constructor(internetOk: Boolean, baselineIp: String?, exitIp: String?)' app/src/main/java/com/v2ray/ang/ui/main/VaraTunnelVerifier.kt
           test -s app/src/main/java/com/v2ray/ang/ui/main/VaraNetworkRadar.kt
           test -s app/src/main/java/com/v2ray/ang/ui/main/VaraLocale.kt
 
