@@ -242,7 +242,7 @@ jobs:
             adb uninstall com.saeiddvc.vpn >/dev/null 2>&1 || true
             adb install "$SIGNED_UNIVERSAL_APK"
             adb shell pm path com.saeiddvc.vpn | grep -q '^package:'
-            dumpsys package com.saeiddvc.vpn >/tmp/vara-457-package.txt
+            adb shell dumpsys package com.saeiddvc.vpn >/tmp/vara-457-package.txt
             grep -q "versionCode=$EXPECTED_MANIFEST_VERSION_CODE" /tmp/vara-457-package.txt
             adb shell monkey -p com.saeiddvc.vpn -c android.intent.category.LAUNCHER 1 >/tmp/vara-457-launch.txt 2>&1
             sleep 5
