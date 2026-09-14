@@ -1,0 +1,215 @@
+name: Vara Smart VPN 4.5.7 Verified Field-Test v2
+
+on:
+  push:
+    branches: [ vara-smartvpn-4.5.7-fieldtest ]
+    paths:
+      - '.github/workflows/vara-smartvpn-457-fieldtest-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-test-sign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PRIVATE_REF: vara-451-compatibility-privacy-hotspot
+      AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
+      AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
+      NDK_VERSION: 29.0.14206865
+      BUILD_TOOLS_VERSION: 36.0.0
+      VARA_435_CERT_SHA256: a4c80b8c53661d011e78d8c0e78765e8cd4c79de9ff9a500909cb734c1548b70
+    steps:
+      - name: Checkout public build shell
+        uses: actions/checkout@v4
+      - name: Validate private source token
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+      - name: Checkout private source-of-truth branch
+        uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          ref: ${{ env.PRIVATE_REF }}
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Bootstrap build tools and Android SDK
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip curl git swig ninja-build cmake jq
+          ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          test -x "$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" "cmake;3.22.1" "platform-tools" "platforms;android-36" "build-tools;$BUILD_TOOLS_VERSION"
+          echo "ANDROID_HOME=$ANDROID_SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK/build-tools/$BUILD_TOOLS_VERSION" >> "$GITHUB_PATH"
+      - name: Extract audited source and current patch chain
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR"
+          PROJECT_DIR="$GITHUB_WORKSPACE/private-source/$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          rm -rf "$PROJECT_DIR/ci" "$PROJECT_DIR/.github/support"
+          mkdir -p "$PROJECT_DIR/.github"
+          cp -a ci "$PROJECT_DIR/ci"
+          if [ -d .github/support ]; then cp -a .github/support "$PROJECT_DIR/.github/support"; fi
+      - name: Apply Vara 4.5.7 source-of-truth patch chain
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$PWD" bash ci/apply-aegis-430.sh
+          grep -q 'versionName = "4.5.7"' app/build.gradle.kts
+          grep -q 'versionCode = 457' app/build.gradle.kts
+          grep -q 'TRANSPORT_VPN' app/src/main/java/com/v2ray/ang/ui/main/VaraTunnelVerifier.kt
+          grep -q 'SERVICE_BLOCKS_IRAN' app/src/main/java/com/v2ray/ang/ui/main/VaraNetworkRadar.kt
+          grep -q 'object VaraLocale' app/src/main/java/com/v2ray/ang/ui/main/VaraLocale.kt
+          grep -q 'object VaraProtocolMode' app/src/main/java/com/v2ray/ang/ui/main/VaraProtocolMode.kt
+          ! grep -q 'text = "⏻"' app/src/main/java/com/v2ray/ang/ui/main/SmartHomeScreen.kt
+      - name: Install verified Xray core
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          mkdir -p app/libs
+          curl --fail --location --retry 4 --retry-all-errors --output app/libs/libv2ray.aar "$AAR_URL"
+          echo "$AAR_SHA256  app/libs/libv2ray.aar" | sha256sum --check --strict
+      - name: Build HEV tun2socks JNI
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          bash ci/build-hev-tunnel.sh
+          find app -type f \( -name '*hev*.so' -o -name '*tun2socks*.so' \) -print | tee /tmp/hev-runtime-files.txt
+          test -s /tmp/hev-runtime-files.txt
+      - name: Build and install OpenVPN3 runtime
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          export AEGIS_OPENVPN3_ABIS='arm64-v8a;x86_64'
+          export AEGIS_OPENVPN3_BUILD_ROOT="$PWD/.aegis-openvpn3-build"
+          export AEGIS_OPENVPN3_OUT_DIR="$PWD/.aegis-openvpn3-out"
+          bash ci/build-openvpn3-core-android.sh
+          AEGIS_PROJECT_DIR="$PWD" AEGIS_OPENVPN3_OUT_DIR="$AEGIS_OPENVPN3_OUT_DIR" AEGIS_OPENVPN3_BUILD_ROOT="$AEGIS_OPENVPN3_BUILD_ROOT" bash ci/install-openvpn3-runtime.sh
+          test -s app/libs/arm64-v8a/libaegis-openvpn3.so
+          test -s app/libs/x86_64/libaegis-openvpn3.so
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace testPlaystoreDebugUnitTest
+      - name: Android lint
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace lintPlaystoreDebug
+      - name: Release assembly
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace assemblePlaystoreRelease
+          find app/build/outputs/apk/playstore/release -type f -name '*.apk' -print
+          test -n "$(find app/build/outputs/apk/playstore/release -type f -name '*.apk' -print -quit)"
+      - name: Select signing identity and sign release APKs
+        env:
+          VARA_KEYSTORE_BASE64: ${{ secrets.VARA_KEYSTORE_BASE64 }}
+          VARA_KEYSTORE_PASSWORD: ${{ secrets.VARA_KEYSTORE_PASSWORD }}
+          VARA_KEY_ALIAS: ${{ secrets.VARA_KEY_ALIAS }}
+          VARA_KEY_PASSWORD: ${{ secrets.VARA_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          KEYSTORE="$RUNNER_TEMP/vara-release.p12"
+          SIGN_STORE_PASS=''; SIGN_ALIAS=''; SIGN_KEY_PASS=''; UPDATE_COMPATIBLE='no'
+          if [ -n "${VARA_KEYSTORE_BASE64:-}" ] && [ -n "${VARA_KEYSTORE_PASSWORD:-}" ] && [ -n "${VARA_KEY_ALIAS:-}" ] && [ -n "${VARA_KEY_PASSWORD:-}" ]; then
+            printf '%s' "$VARA_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+            CERT_SHA256="$(keytool -list -v -keystore "$KEYSTORE" -storepass "$VARA_KEYSTORE_PASSWORD" -alias "$VARA_KEY_ALIAS" 2>/dev/null | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')"
+            if [ "$CERT_SHA256" = "$VARA_435_CERT_SHA256" ]; then
+              SIGN_STORE_PASS="$VARA_KEYSTORE_PASSWORD"; SIGN_ALIAS="$VARA_KEY_ALIAS"; SIGN_KEY_PASS="$VARA_KEY_PASSWORD"; UPDATE_COMPATIBLE='yes'
+            else
+              echo "Permanent key does not match installed 4.3.5 signer; producing clean-install artifacts." >&2
+              rm -f "$KEYSTORE"
+            fi
+          fi
+          if [ ! -f "$KEYSTORE" ]; then
+            SIGN_STORE_PASS='Vara457CleanInstall2026'; SIGN_KEY_PASS="$SIGN_STORE_PASS"; SIGN_ALIAS='vara-fieldtest'
+            keytool -genkeypair -noprompt -storetype PKCS12 -keystore "$KEYSTORE" -storepass "$SIGN_STORE_PASS" -keypass "$SIGN_KEY_PASS" -alias "$SIGN_ALIAS" -keyalg RSA -keysize 4096 -validity 3650 -dname 'CN=Vara Smart VPN Field Test, OU=Vara, O=Vara, L=Karaj, C=IR'
+          fi
+          rm -rf "$RUNNER_TEMP/vara-457-signed" && mkdir -p "$RUNNER_TEMP/vara-457-signed"
+          while IFS= read -r apk; do
+            base="$(basename "$apk" .apk)"; base="${base%-unsigned}"
+            aligned="$RUNNER_TEMP/vara-457-signed/${base}-aligned.apk"; signed="$RUNNER_TEMP/vara-457-signed/${base}-signed.apk"
+            zipalign -f -p 4 "$apk" "$aligned"
+            apksigner sign --ks "$KEYSTORE" --ks-key-alias "$SIGN_ALIAS" --ks-pass "pass:$SIGN_STORE_PASS" --key-pass "pass:$SIGN_KEY_PASS" --out "$signed" "$aligned"
+            apksigner verify --verbose --print-certs "$signed" | tee "$signed.cert.txt"
+            rm -f "$aligned"
+          done < <(find app/build/outputs/apk/playstore/release -type f -name '*.apk' | sort)
+          ARM64_APK="$(find "$RUNNER_TEMP/vara-457-signed" -type f -name '*arm64-v8a*-signed.apk' -print -quit)"
+          UNIVERSAL_APK="$(find "$RUNNER_TEMP/vara-457-signed" -type f -name '*universal*-signed.apk' -print -quit)"
+          test -n "$ARM64_APK"; test -n "$UNIVERSAL_APK"
+          echo "ARM64_APK=$ARM64_APK" >> "$GITHUB_ENV"; echo "UNIVERSAL_APK=$UNIVERSAL_APK" >> "$GITHUB_ENV"; echo "UPDATE_COMPATIBLE=$UPDATE_COMPATIBLE" >> "$GITHUB_ENV"
+      - name: Verify signed package, version, native runtime and signer consistency
+        run: |
+          set -euo pipefail
+          mkdir -p release-files
+          cp "$ARM64_APK" release-files/Vara-Smart-VPN-4.5.7-ARM64.apk
+          cp "$UNIVERSAL_APK" release-files/Vara-Smart-VPN-4.5.7-Universal.apk
+          for apk in release-files/*.apk; do
+            apksigner verify --verbose --print-certs "$apk" | tee "$apk.cert.txt"
+            BADGING="$(aapt dump badging "$apk" | head -n1)"; echo "$BADGING"
+            printf '%s\n' "$BADGING" | grep -q "name='com.vara.smartvpn'"
+            printf '%s\n' "$BADGING" | grep -q "versionName='4.5.7'"
+            printf '%s\n' "$BADGING" | grep -q "versionCode='457'"
+          done
+          ARM_CERT="$(apksigner verify --print-certs release-files/Vara-Smart-VPN-4.5.7-ARM64.apk | awk -F': ' '/Signer #1 certificate SHA-256 digest/{print tolower($2); exit}')"
+          UNI_CERT="$(apksigner verify --print-certs release-files/Vara-Smart-VPN-4.5.7-Universal.apk | awk -F': ' '/Signer #1 certificate SHA-256 digest/{print tolower($2); exit}')"
+          test -n "$ARM_CERT"; test "$ARM_CERT" = "$UNI_CERT"
+          if [ "$UPDATE_COMPATIBLE" = 'yes' ]; then test "$ARM_CERT" = "$VARA_435_CERT_SHA256"; fi
+          unzip -l release-files/Vara-Smart-VPN-4.5.7-ARM64.apk | grep -q 'lib/arm64-v8a/libaegis-openvpn3.so'
+          sha256sum release-files/*.apk > release-files/SHA256SUMS.txt
+          printf 'package=com.vara.smartvpn\nversionName=4.5.7\nversionCode=457\nsigner_sha256=%s\nupdate_compatible_with_4.3.5=%s\n' "$ARM_CERT" "$UPDATE_COMPATIBLE" > release-files/VERIFICATION.txt
+          cat release-files/SHA256SUMS.txt; cat release-files/VERIFICATION.txt
+      - name: Upload verified installable artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vara-Smart-VPN-4.5.7-Verified
+          path: |
+            release-files/Vara-Smart-VPN-4.5.7-ARM64.apk
+            release-files/Vara-Smart-VPN-4.5.7-Universal.apk
+            release-files/SHA256SUMS.txt
+            release-files/VERIFICATION.txt
+            release-files/*.cert.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish field-test prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v4.5.7-field-${{ github.run_number }}
+          name: Vara Smart VPN 4.5.7 Field Test ${{ github.run_number }}
+          prerelease: true
+          generate_release_notes: false
+          files: |
+            release-files/Vara-Smart-VPN-4.5.7-ARM64.apk
+            release-files/Vara-Smart-VPN-4.5.7-Universal.apk
+            release-files/SHA256SUMS.txt
+            release-files/VERIFICATION.txt
+          body: |
+            Verified Vara Smart VPN 4.5.7 field-test build from the private source-of-truth patch chain.
+            Unit tests, lint, release assembly, Xray checksum, HEV, OpenVPN3, APK signature, package/version and ARM64 native runtime are hard-gated before publication.
+            VERIFICATION.txt states whether Android update-in-place signer continuity with installed 4.3.5 was verified; otherwise artifacts are clean-install builds.
