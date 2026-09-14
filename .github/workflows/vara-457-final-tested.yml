@@ -1,0 +1,231 @@
+name: Vara Smart VPN 4.5.7 Final Tested
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/vara-457-final-tested.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  final-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      AAR_URL: https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.7.31/libv2ray.aar
+      AAR_SHA256: a6b51b525b72a114c10e34288392439b1897c9ff7ce2f8afd7ffdce9d91e93b3
+      VARA_435_CERT_SHA256: a4c80b8c53661d011e78d8c0e78765e8cd4c79de9ff9a500909cb734c1548b70
+      VARA_KEYSTORE_BASE64: ${{ secrets.VARA_KEYSTORE_BASE64 }}
+      VARA_KEYSTORE_PASSWORD: ${{ secrets.VARA_KEYSTORE_PASSWORD }}
+      VARA_KEY_ALIAS: ${{ secrets.VARA_KEY_ALIAS }}
+      VARA_KEY_PASSWORD: ${{ secrets.VARA_KEY_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate private source access
+        env:
+          AEGIS_SOURCE_TOKEN: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+        run: test -n "${AEGIS_SOURCE_TOKEN:-}"
+
+      - name: Checkout Vara source branch
+        uses: actions/checkout@v4
+        with:
+          repository: Saeiddvc/SaeidVPN-Android
+          ref: vara-451-compatibility-privacy-hotspot
+          token: ${{ secrets.AEGIS_SOURCE_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Resolve Android NDK 29 and build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "$ANDROID_HOME/ndk/29.0.14206865" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
+          fi
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;36.0.0" "platforms;android-36" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/build-tools/36.0.0" >> "$GITHUB_PATH"
+
+      - name: Reconstruct source and apply 4.5.7 source-of-truth chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          rm -rf work && mkdir work
+          unzip -q SaeidVPN-Android-3.2.0-final-source.zip -d work
+          PROJECT_DIR_REL="$(find work -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          test -n "$PROJECT_DIR_REL"
+          PROJECT_DIR="$GITHUB_WORKSPACE/private-source/$PROJECT_DIR_REL"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          cd "$PROJECT_DIR"
+          AEGIS_SOURCE_ROOT="$GITHUB_WORKSPACE/private-source" bash "$GITHUB_WORKSPACE/private-source/ci/apply-aegis-430.sh"
+          cd "$GITHUB_WORKSPACE/private-source"
+          AEGIS_SOURCE_ROOT="$PROJECT_DIR" python3 ci/rc37-vara-457-evidence-compatibility.py
+          cd "$PROJECT_DIR"
+          grep -q 'versionName = "4.5.7"' app/build.gradle.kts
+          grep -q 'versionCode = 457' app/build.gradle.kts
+          grep -q 'TRANSPORT_VPN' app/src/main/java/com/v2ray/ang/ui/main/VaraTunnelVerifier.kt
+          grep -q 'SERVICE_BLOCKS_IRAN' app/src/main/java/com/v2ray/ang/ui/main/VaraNetworkRadar.kt
+          grep -q 'object VaraLocale' app/src/main/java/com/v2ray/ang/ui/main/VaraLocale.kt
+          grep -q 'VaraProtocolMode.accepts' app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt
+          ! grep -q 'text = "⏻"' app/src/main/java/com/v2ray/ang/ui/main/SmartHomeScreen.kt
+
+      - name: Reuse verified OpenVPN3 all-ABI runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/openvpn3-download"
+          gh run download 32235073201 --repo Saeiddvc/Aegis-Shield-Open-Build --name aegis-430-openvpn3-allabi-probe --dir "$GITHUB_WORKSPACE/openvpn3-download"
+          INNER="$(find "$GITHUB_WORKSPACE/openvpn3-download" -mindepth 1 -maxdepth 3 -type d -name jni -print -quit)"
+          test -n "$INNER"
+          ROOT="$(dirname "$INNER")"
+          mv "$ROOT" "$GITHUB_WORKSPACE/openvpn3-out"
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do test -s "$GITHUB_WORKSPACE/openvpn3-out/jni/$abi/libaegis-openvpn3.so"; done
+
+      - name: Install OpenVPN3, verified Xray and HEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x private-source/ci/package-openvpn3-runtime.sh private-source/ci/install-openvpn3-runtime.sh
+          AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" private-source/ci/package-openvpn3-runtime.sh
+          AEGIS_PROJECT_DIR="$PROJECT_DIR" AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" AEGIS_OPENVPN3_BUILD_ROOT="$GITHUB_WORKSPACE/openvpn3-download" private-source/ci/install-openvpn3-runtime.sh
+          cd "$PROJECT_DIR"
+          mkdir -p app/libs
+          curl --fail --location --retry 4 --retry-all-errors --output app/libs/libv2ray.aar "$AAR_URL"
+          echo "$AAR_SHA256  app/libs/libv2ray.aar" | sha256sum --check --strict
+          bash "$GITHUB_WORKSPACE/private-source/ci/build-hev-tunnel.sh"
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            test -s "app/libs/$abi/libaegis-openvpn3.so"
+            test -s "app/libs/$abi/libc++_shared.so"
+            test -s "app/libs/$abi/libhev-socks5-tunnel.so"
+          done
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace testPlaystoreDebugUnitTest
+
+      - name: Android lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace lintPlaystoreDebug
+
+      - name: Debug payload verification and Android 16 build gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace assemblePlaystoreDebug
+          python3 scripts/verify_apk.py
+          UNIVERSAL="$(find app/build/outputs/apk/playstore/debug -name '*universal.apk' -print -quit)"
+          test -n "$UNIVERSAL"
+          unzip -l "$UNIVERSAL" > "$GITHUB_WORKSPACE/apk-list.txt"
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            grep -q "lib/$abi/libaegis-openvpn3.so" "$GITHUB_WORKSPACE/apk-list.txt"
+            grep -q "lib/$abi/libc++_shared.so" "$GITHUB_WORKSPACE/apk-list.txt"
+            grep -q "lib/$abi/libhev-socks5-tunnel.so" "$GITHUB_WORKSPACE/apk-list.txt"
+          done
+
+      - name: Release assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon --stacktrace assemblePlaystoreRelease
+          find app/build/outputs/apk/playstore/release -type f -name '*.apk' -print
+          test -n "$(find app/build/outputs/apk/playstore/release -type f -name '*.apk' -print -quit)"
+
+      - name: Select signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYSTORE="$RUNNER_TEMP/vara-release.p12"
+          MODE=clean-install
+          ALIAS=vara-clean
+          STOREPASS='vara457-clean-fieldtest'
+          KEYPASS='vara457-clean-fieldtest'
+          if [ -n "${VARA_KEYSTORE_BASE64:-}" ] && [ -n "${VARA_KEYSTORE_PASSWORD:-}" ] && [ -n "${VARA_KEY_ALIAS:-}" ] && [ -n "${VARA_KEY_PASSWORD:-}" ]; then
+            printf '%s' "$VARA_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+            if keytool -list -keystore "$KEYSTORE" -storepass "$VARA_KEYSTORE_PASSWORD" -alias "$VARA_KEY_ALIAS" >/dev/null 2>&1; then
+              ACTUAL="$(keytool -list -v -keystore "$KEYSTORE" -storepass "$VARA_KEYSTORE_PASSWORD" -alias "$VARA_KEY_ALIAS" | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')"
+              if [ "$ACTUAL" = "$VARA_435_CERT_SHA256" ]; then
+                MODE=update-compatible
+                ALIAS="$VARA_KEY_ALIAS"
+                STOREPASS="$VARA_KEYSTORE_PASSWORD"
+                KEYPASS="$VARA_KEY_PASSWORD"
+              fi
+            fi
+          fi
+          if [ "$MODE" = clean-install ]; then
+            rm -f "$KEYSTORE"
+            keytool -genkeypair -noprompt -keystore "$KEYSTORE" -storetype PKCS12 -storepass "$STOREPASS" -keypass "$KEYPASS" -alias "$ALIAS" -keyalg RSA -keysize 3072 -validity 3650 -dname 'CN=Vara 4.5.7 Field Test, OU=Field Test, O=Vara, C=IR'
+          fi
+          echo "SIGNING_MODE=$MODE" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
+          echo "SIGNING_ALIAS=$ALIAS" >> "$GITHUB_ENV"
+          echo "SIGNING_STOREPASS=$STOREPASS" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYPASS=$KEYPASS" >> "$GITHUB_ENV"
+
+      - name: Sign, align and cryptographically verify release APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/vara-457-signed"
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          count=0
+          while IFS= read -r apk; do
+            count=$((count+1))
+            base="$(basename "$apk" .apk)"; base="${base%-unsigned}"
+            aligned="$OUT/${base}-aligned.apk"
+            signed="$OUT/${base}-signed.apk"
+            zipalign -f -p 4 "$apk" "$aligned"
+            apksigner sign --ks "$SIGNING_KEYSTORE" --ks-key-alias "$SIGNING_ALIAS" --ks-pass "pass:$SIGNING_STOREPASS" --key-pass "pass:$SIGNING_KEYPASS" --out "$signed" "$aligned"
+            apksigner verify --verbose --print-certs "$signed" | tee "$signed.verify.txt"
+            rm -f "$aligned"
+          done < <(find "$PROJECT_DIR/app/build/outputs/apk/playstore/release" -type f -name '*.apk' | sort)
+          test "$count" -gt 0
+          mkdir -p "$GITHUB_WORKSPACE/release-files"
+          ARM64="$(find "$OUT" -type f -name '*arm64-v8a*-signed.apk' -print -quit)"
+          UNIVERSAL="$(find "$OUT" -type f -name '*universal*-signed.apk' -print -quit)"
+          test -n "$ARM64" && test -n "$UNIVERSAL"
+          cp "$ARM64" "$GITHUB_WORKSPACE/release-files/Vara-Smart-VPN-4.5.7-ARM64.apk"
+          cp "$UNIVERSAL" "$GITHUB_WORKSPACE/release-files/Vara-Smart-VPN-4.5.7-Universal.apk"
+          cp "$ARM64.verify.txt" "$GITHUB_WORKSPACE/release-files/ARM64-apksigner.txt"
+          cp "$UNIVERSAL.verify.txt" "$GITHUB_WORKSPACE/release-files/Universal-apksigner.txt"
+          cd "$GITHUB_WORKSPACE/release-files"
+          sha256sum *.apk | tee SHA256SUMS.txt
+          printf 'versionName=4.5.7\nversionCode=457\nsigning_mode=%s\nexpected_v4.3.5_cert_sha256=%s\n' "$SIGNING_MODE" "$VARA_435_CERT_SHA256" > BUILD-VERIFICATION.txt
+          if [ "$SIGNING_MODE" = update-compatible ]; then
+            echo 'update_in_place=true' >> BUILD-VERIFICATION.txt
+          else
+            echo 'update_in_place=false' >> BUILD-VERIFICATION.txt
+            echo 'reason=original v4.3.5 signing identity was not available/matching; this is a verified clean-install field-test build' >> BUILD-VERIFICATION.txt
+          fi
+          cat BUILD-VERIFICATION.txt
+
+      - name: Upload verified APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vara-Smart-VPN-4.5.7-final-tested
+          path: release-files/*
+          if-no-files-found: error
+          retention-days: 14
