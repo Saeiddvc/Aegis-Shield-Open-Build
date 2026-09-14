@@ -1,4 +1,4 @@
-# Vara 4.5.7 public build shell trigger v4
+# Vara 4.5.7 public build shell trigger v5
 name: Vara Smart VPN 4.5.7 Final Tested
 
 on:
@@ -71,11 +71,13 @@ jobs:
           test -n "$PROJECT_DIR_REL"
           PROJECT_DIR="$GITHUB_WORKSPACE/private-source/$PROJECT_DIR_REL"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          rm -rf "$PROJECT_DIR/ci" "$PROJECT_DIR/.github/support"
+          mkdir -p "$PROJECT_DIR/.github"
+          cp -a ci "$PROJECT_DIR/ci"
+          if [ -d .github/support ]; then cp -a .github/support "$PROJECT_DIR/.github/support"; fi
           cd "$PROJECT_DIR"
-          AEGIS_SOURCE_ROOT="$PROJECT_DIR" bash "$GITHUB_WORKSPACE/private-source/ci/apply-aegis-430.sh"
-          cd "$GITHUB_WORKSPACE/private-source"
+          AEGIS_SOURCE_ROOT="$PROJECT_DIR" bash ci/apply-aegis-430.sh
           AEGIS_SOURCE_ROOT="$PROJECT_DIR" python3 ci/rc37-vara-457-evidence-compatibility.py
-          cd "$PROJECT_DIR"
           grep -q 'versionName = "4.5.7"' app/build.gradle.kts
           grep -q 'versionCode = 457' app/build.gradle.kts
           grep -q 'TRANSPORT_VPN' app/src/main/java/com/v2ray/ang/ui/main/VaraTunnelVerifier.kt
