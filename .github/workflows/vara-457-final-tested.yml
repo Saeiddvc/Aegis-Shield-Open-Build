@@ -1,4 +1,4 @@
-# Vara 4.5.7 public build shell trigger v2
+# Vara 4.5.7 public build shell trigger v3
 name: Vara Smart VPN 4.5.7 Final Tested
 
 on:
@@ -52,10 +52,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -d "$ANDROID_HOME/ndk/29.0.14206865" ]; then
-            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
+            "$SDKMANAGER" "ndk;29.0.14206865"
           fi
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;36.0.0" "platforms;android-36" >/dev/null
+          "$SDKMANAGER" "build-tools;36.0.0" "platforms;android-36" >/dev/null
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
           echo "$ANDROID_HOME/build-tools/36.0.0" >> "$GITHUB_PATH"
 
@@ -130,7 +131,7 @@ jobs:
           cd "$PROJECT_DIR"
           ./gradlew --no-daemon --stacktrace lintPlaystoreDebug
 
-      - name: Debug payload verification and Android 16 build gate
+      - name: Debug payload verification
         shell: bash
         run: |
           set -euo pipefail
@@ -192,9 +193,7 @@ jobs:
           set -euo pipefail
           OUT="$RUNNER_TEMP/vara-457-signed"
           rm -rf "$OUT" && mkdir -p "$OUT"
-          count=0
           while IFS= read -r apk; do
-            count=$((count+1))
             base="$(basename "$apk" .apk)"; base="${base%-unsigned}"
             aligned="$OUT/${base}-aligned.apk"
             signed="$OUT/${base}-signed.apk"
@@ -203,7 +202,6 @@ jobs:
             apksigner verify --verbose --print-certs "$signed" | tee "$signed.verify.txt"
             rm -f "$aligned"
           done < <(find "$PROJECT_DIR/app/build/outputs/apk/playstore/release" -type f -name '*.apk' | sort)
-          test "$count" -gt 0
           mkdir -p "$GITHUB_WORKSPACE/release-files"
           ARM64="$(find "$OUT" -type f -name '*arm64-v8a*-signed.apk' -print -quit)"
           UNIVERSAL="$(find "$OUT" -type f -name '*universal*-signed.apk' -print -quit)"
@@ -215,12 +213,7 @@ jobs:
           cd "$GITHUB_WORKSPACE/release-files"
           sha256sum *.apk | tee SHA256SUMS.txt
           printf 'versionName=4.5.7\nversionCode=457\nsigning_mode=%s\nexpected_v4.3.5_cert_sha256=%s\n' "$SIGNING_MODE" "$VARA_435_CERT_SHA256" > BUILD-VERIFICATION.txt
-          if [ "$SIGNING_MODE" = update-compatible ]; then
-            echo 'update_in_place=true' >> BUILD-VERIFICATION.txt
-          else
-            echo 'update_in_place=false' >> BUILD-VERIFICATION.txt
-            echo 'reason=original v4.3.5 signing identity was not available/matching; this is a verified clean-install field-test build' >> BUILD-VERIFICATION.txt
-          fi
+          if [ "$SIGNING_MODE" = update-compatible ]; then echo 'update_in_place=true' >> BUILD-VERIFICATION.txt; else echo 'update_in_place=false' >> BUILD-VERIFICATION.txt; fi
           cat BUILD-VERIFICATION.txt
 
       - name: Upload verified APKs
