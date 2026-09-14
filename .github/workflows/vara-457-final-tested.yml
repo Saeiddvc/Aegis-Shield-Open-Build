@@ -1,4 +1,4 @@
-# Vara 4.5.7 public build shell trigger v5
+# Vara 4.5.7 public build shell trigger v6
 name: Vara Smart VPN 4.5.7 Final Tested
 
 on:
@@ -86,19 +86,16 @@ jobs:
           grep -q 'VaraProtocolMode.accepts' app/src/main/java/com/v2ray/ang/ui/main/MainViewModel.kt
           ! grep -q 'text = "⏻"' app/src/main/java/com/v2ray/ang/ui/main/SmartHomeScreen.kt
 
-      - name: Reuse verified OpenVPN3 all-ABI runtime
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build OpenVPN3 all-ABI runtime
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE/openvpn3-download"
-          gh run download 32235073201 --repo Saeiddvc/Aegis-Shield-Open-Build --name aegis-430-openvpn3-allabi-probe --dir "$GITHUB_WORKSPACE/openvpn3-download"
-          INNER="$(find "$GITHUB_WORKSPACE/openvpn3-download" -mindepth 1 -maxdepth 3 -type d -name jni -print -quit)"
-          test -n "$INNER"
-          ROOT="$(dirname "$INNER")"
-          mv "$ROOT" "$GITHUB_WORKSPACE/openvpn3-out"
-          for abi in arm64-v8a armeabi-v7a x86_64 x86; do test -s "$GITHUB_WORKSPACE/openvpn3-out/jni/$abi/libaegis-openvpn3.so"; done
+          cd "$PROJECT_DIR"
+          export AEGIS_OPENVPN3_ABIS='arm64-v8a;armeabi-v7a;x86_64;x86'
+          export AEGIS_OPENVPN3_BUILD_ROOT="$GITHUB_WORKSPACE/openvpn3-build"
+          export AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out"
+          bash ci/build-openvpn3-core-android.sh
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do test -s "$AEGIS_OPENVPN3_OUT_DIR/jni/$abi/libaegis-openvpn3.so"; done
 
       - name: Install OpenVPN3, verified Xray and HEV
         shell: bash
@@ -106,7 +103,7 @@ jobs:
           set -euo pipefail
           chmod +x private-source/ci/package-openvpn3-runtime.sh private-source/ci/install-openvpn3-runtime.sh
           AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" private-source/ci/package-openvpn3-runtime.sh
-          AEGIS_PROJECT_DIR="$PROJECT_DIR" AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" AEGIS_OPENVPN3_BUILD_ROOT="$GITHUB_WORKSPACE/openvpn3-download" private-source/ci/install-openvpn3-runtime.sh
+          AEGIS_PROJECT_DIR="$PROJECT_DIR" AEGIS_OPENVPN3_OUT_DIR="$GITHUB_WORKSPACE/openvpn3-out" AEGIS_OPENVPN3_BUILD_ROOT="$GITHUB_WORKSPACE/openvpn3-build" private-source/ci/install-openvpn3-runtime.sh
           cd "$PROJECT_DIR"
           mkdir -p app/libs
           curl --fail --location --retry 4 --retry-all-errors --output app/libs/libv2ray.aar "$AAR_URL"
