@@ -1,4 +1,4 @@
-# Vara 4.5.7 public build shell trigger v3
+# Vara 4.5.7 public build shell trigger v4
 name: Vara Smart VPN 4.5.7 Final Tested
 
 on:
@@ -72,7 +72,7 @@ jobs:
           PROJECT_DIR="$GITHUB_WORKSPACE/private-source/$PROJECT_DIR_REL"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           cd "$PROJECT_DIR"
-          AEGIS_SOURCE_ROOT="$GITHUB_WORKSPACE/private-source" bash "$GITHUB_WORKSPACE/private-source/ci/apply-aegis-430.sh"
+          AEGIS_SOURCE_ROOT="$PROJECT_DIR" bash "$GITHUB_WORKSPACE/private-source/ci/apply-aegis-430.sh"
           cd "$GITHUB_WORKSPACE/private-source"
           AEGIS_SOURCE_ROOT="$PROJECT_DIR" python3 ci/rc37-vara-457-evidence-compatibility.py
           cd "$PROJECT_DIR"
